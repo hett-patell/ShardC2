@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
@@ -129,4 +130,33 @@ func TestProfileSystem(t *testing.T) {
 	if profile.Hostname == "" {
 		t.Error("Expected hostname to be set")
 	}
+	if profile.OS == "" {
+		t.Error("Expected OS to be set")
+	}
+	if profile.Arch == "" {
+		t.Error("Expected Arch to be set")
+	}
+	if profile.User == "" {
+		t.Error("Expected User to be set")
+	}
+
+	// Test default user case
+	t.Run("default user", func(t *testing.T) {
+		originalUser := os.Getenv("USER")
+		defer func() {
+			if originalUser != "" {
+				os.Setenv("USER", originalUser)
+			} else {
+				os.Unsetenv("USER")
+			}
+		}()
+		os.Unsetenv("USER")
+		profile2, err := agent.ProfileSystem()
+		if err != nil {
+			t.Fatalf("Expected profiling to succeed, got error: %v", err)
+		}
+		if profile2.User != "unknown" {
+			t.Errorf("Expected user to be 'unknown' when USER env var is not set, got %q", profile2.User)
+		}
+	})
 }

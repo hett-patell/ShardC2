@@ -99,7 +99,10 @@ func (a *Agent) ExecuteCommand(cmd string) (string, error) {
 }
 
 func (a *Agent) ProfileSystem() (*SystemProfile, error) {
-	hostname, _ := os.Hostname()
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get hostname: %w", err)
+	}
 	user := os.Getenv("USER")
 	if user == "" {
 		user = "unknown"
