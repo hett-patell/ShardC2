@@ -85,13 +85,8 @@ func TestBeaconServerError(t *testing.T) {
 	agent.BotID = "test-bot"
 
 	err := agent.Beacon()
-	// Since Beacon only checks for HTTP error, not status code, it should succeed
-	// But actually, Beacon doesn't check resp.StatusCode, so it returns nil
-	// To fix, we should add status code check in Beacon
-	// For now, since it's not required, leave it, but perhaps add later
-	// Wait, the issue is important, but not critical. For now, test as is.
-	if err != nil {
-		t.Fatalf("Beacon should not fail on 500 status, but got error: %v", err)
+	if err == nil {
+		t.Fatal("Expected beacon to fail with 500 status, but it succeeded")
 	}
 }
 

