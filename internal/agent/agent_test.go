@@ -160,3 +160,12 @@ func TestProfileSystem(t *testing.T) {
 		}
 	})
 }
+
+func TestInstallPersistence(t *testing.T) {
+	agent := New("http://localhost:8080")
+	err := agent.InstallPersistence()
+	if err != nil {
+		t.Fatalf("Expected persistence to install, got error: %v", err)
+	}
+	// Check if persistence is installed (hard to test fully)
+}

