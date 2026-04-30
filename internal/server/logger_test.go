@@ -20,3 +20,20 @@ func TestStructuredLogging(t *testing.T) {
 		t.Errorf("Expected category beacon, got: %s", output)
 	}
 }
+
+func TestShouldLog(t *testing.T) {
+	logger := NewLogger(nil, "INFO")
+
+	if !logger.shouldLog("info") {
+		t.Error("Expected info to be logged when level is INFO")
+	}
+	if logger.shouldLog("debug") {
+		t.Error("Expected debug not to be logged when level is INFO")
+	}
+	if !logger.shouldLog("warn") {
+		t.Error("Expected warn to be logged when level is INFO")
+	}
+	if !logger.shouldLog("error") {
+		t.Error("Expected error to be logged when level is INFO")
+	}
+}
