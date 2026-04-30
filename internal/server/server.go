@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -12,8 +13,9 @@ import (
 )
 
 type Server struct {
-	app *fiber.App
-	db  *database.DB
+	app    *fiber.App
+	db     *database.DB
+	logger *Logger
 }
 
 func New(db *database.DB) *Server {
@@ -29,7 +31,7 @@ func New(db *database.DB) *Server {
 		Format: "${time} | ${status} | ${latency} | ${ip} | ${method} ${path}\n",
 	}))
 
-	s := &Server{app: app, db: db}
+	s := &Server{app: app, db: db, logger: NewLogger(os.Stdout, "INFO")}
 	s.setupRoutes()
 	return s
 }
