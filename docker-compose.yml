@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: shardc2-db
+    environment:
+      POSTGRES_DB: shardc2
+      POSTGRES_USER: shardc2
+      POSTGRES_PASSWORD: shardc2_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:7-alpine
+    container_name: shardc2-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass shardc2_redis
+
+volumes:
+  pgdata:
