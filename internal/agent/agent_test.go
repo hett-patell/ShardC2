@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -163,9 +164,46 @@ func TestProfileSystem(t *testing.T) {
 
 func TestInstallPersistence(t *testing.T) {
 	agent := New("http://localhost:8080")
-	err := agent.InstallPersistence()
+
+	// Create temp dir for testing
+	tempDir, err := os.MkdirTemp("", "shardc2-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Install persistence to temp dir
+	err = agent.InstallPersistence(tempDir)
 	if err != nil {
 		t.Fatalf("Expected persistence to install, got error: %v", err)
 	}
-	// Check if persistence is installed (hard to test fully)
+
+	// Check if file was created
+	cronPath := tempDir + "/shardc2"
+	if _, err := os.Stat(cronPath); os.IsNotExist(err) {
+		t.Fatalf("Cron file was not created: %s", cronPath)
+	}
+
+	// Check file permissions
+	info, err := os.Stat(cronPath)
+	if err != nil {
+		t.Fatalf("Failed to stat cron file: %v", err)
+	}
+	expectedMode := os.FileMode(0644)
+	if info.Mode().Perm() != expectedMode {
+		t.Errorf("Expected file permissions %v, got %v", expectedMode, info.Mode().Perm())
+	}
+
+	// Check file content
+	content, err := os.ReadFile(cronPath)
+	if err != nil {
+		t.Fatalf("Failed to read cron file: %v", err)
+	}
+	// Check that it contains "@reboot root" and ends with " --daemon\n"
+	if !strings.Contains(string(content), "@reboot root") {
+		t.Errorf("Expected cron content to contain '@reboot root', got %q", string(content))
+	}
+	if !strings.HasSuffix(string(content), " --daemon\n") {
+		t.Errorf("Expected cron content to end with ' --daemon\\n', got %q", string(content))
+	}
 }

