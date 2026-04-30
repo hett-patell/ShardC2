@@ -103,3 +103,31 @@ func TestExecuteCommand(t *testing.T) {
 		t.Errorf("Expected 'hello\\n', got %q", result)
 	}
 }
+
+func TestExecuteCommandFailure(t *testing.T) {
+	agent := New("http://localhost:8080")
+	_, err := agent.ExecuteCommand("false")
+	if err == nil {
+		t.Fatal("Expected command to fail")
+	}
+}
+
+func TestExecuteCommandEmpty(t *testing.T) {
+	agent := New("http://localhost:8080")
+	_, err := agent.ExecuteCommand("")
+	if err == nil {
+		t.Fatal("Expected empty command to fail")
+	}
+}
+
+func TestExecuteCommandNoInjection(t *testing.T) {
+	agent := New("http://localhost:8080")
+	result, err := agent.ExecuteCommand("echo hello; echo bad")
+	if err != nil {
+		t.Fatalf("Expected command to succeed, got error: %v", err)
+	}
+	expected := "hello; echo bad\n"
+	if result != expected {
+		t.Errorf("Expected %q, got %q", expected, result)
+	}
+}
