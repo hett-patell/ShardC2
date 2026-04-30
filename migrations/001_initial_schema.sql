@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-CREATE TABLE bots (
+CREATE TABLE IF NOT EXISTS bots (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     hostname VARCHAR(255) NOT NULL,
     ip_address VARCHAR(45) NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE bots (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE commands (
+CREATE TABLE IF NOT EXISTS commands (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     bot_id UUID REFERENCES bots(id) ON DELETE CASCADE,
     type VARCHAR(50) NOT NULL DEFAULT 'shell',
@@ -26,7 +26,7 @@ CREATE TABLE commands (
     executed_at TIMESTAMP WITH TIME ZONE
 );
 
-CREATE TABLE credentials (
+CREATE TABLE IF NOT EXISTS credentials (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     username VARCHAR(255) NOT NULL,
     password VARCHAR(255) NOT NULL,
@@ -37,7 +37,7 @@ CREATE TABLE credentials (
     bot_id UUID REFERENCES bots(id) ON DELETE SET NULL
 );
 
-CREATE TABLE campaigns (
+CREATE TABLE IF NOT EXISTS campaigns (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
     description TEXT,
@@ -48,7 +48,7 @@ CREATE TABLE campaigns (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE proxies (
+CREATE TABLE IF NOT EXISTS proxies (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     bot_id UUID REFERENCES bots(id) ON DELETE CASCADE,
     type VARCHAR(20) NOT NULL DEFAULT 'socks5',
@@ -57,7 +57,7 @@ CREATE TABLE proxies (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE keylog (
+CREATE TABLE IF NOT EXISTS keylog (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     bot_id UUID REFERENCES bots(id) ON DELETE CASCADE,
     data TEXT NOT NULL,
@@ -65,7 +65,7 @@ CREATE TABLE keylog (
     captured_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE exfil_data (
+CREATE TABLE IF NOT EXISTS exfil_data (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     bot_id UUID REFERENCES bots(id) ON DELETE CASCADE,
     type VARCHAR(50) NOT NULL,
@@ -75,10 +75,10 @@ CREATE TABLE exfil_data (
     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_bots_status ON bots(status);
-CREATE INDEX idx_bots_last_seen ON bots(last_seen);
-CREATE INDEX idx_commands_bot_id ON commands(bot_id);
-CREATE INDEX idx_commands_status ON commands(status);
-CREATE INDEX idx_credentials_target ON credentials(target);
-CREATE INDEX idx_credentials_valid ON credentials(valid);
-CREATE INDEX idx_proxies_bot_id ON proxies(bot_id);
+CREATE INDEX IF NOT EXISTS idx_bots_status ON bots(status);
+CREATE INDEX IF NOT EXISTS idx_bots_last_seen ON bots(last_seen);
+CREATE INDEX IF NOT EXISTS idx_commands_bot_id ON commands(bot_id);
+CREATE INDEX IF NOT EXISTS idx_commands_status ON commands(status);
+CREATE INDEX IF NOT EXISTS idx_credentials_target ON credentials(target);
+CREATE INDEX IF NOT EXISTS idx_credentials_valid ON credentials(valid);
+CREATE INDEX IF NOT EXISTS idx_proxies_bot_id ON proxies(bot_id);

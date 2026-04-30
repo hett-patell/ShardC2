@@ -10,28 +10,63 @@ import (
 
 	"github.com/shardc2/shardc2/internal/database"
 	"github.com/shardc2/shardc2/internal/server"
+	"github.com/shardc2/shardc2/internal/server/middleware"
 )
 
 const banner = `
-  ____  _                   _  ____ ____  
- / ___|| |__   __ _ _ __ __| |/ ___|___ \ 
+  ____  _                   _  ____ ____
+ / ___|| |__   __ _ _ __ __| |/ ___|___ \
  \___ \| '_ \ / _' | '__/ _' | |     __) |
-  ___) | | | | (_| | | | (_| | |___ / __/ 
+  ___) | | | | (_| | | | (_| | |___ / __/
  |____/|_| |_|\__,_|_|  \__,_|\____|_____|
 
- Command & Control Framework v0.1.0
+ Command & Control Framework v0.2.0
 `
 
 func main() {
 	var (
-		addr    = flag.String("addr", ":8443", "Server listen address")
-		dbConn  = flag.String("db", "postgres://shardc2:shardc2_secret@localhost:5432/shardc2?sslmode=disable", "Database connection string")
-		migrate = flag.Bool("migrate", false, "Run database migrations on startup")
+		addr          = flag.String("addr", ":8443", "Server listen address")
+		dbConn        = flag.String("db", envOrDefault("SHARDC2_DB", "postgres://shardc2:shardc2_secret@localhost:5432/shardc2?sslmode=disable"), "Database connection string")
+		migrate       = flag.Bool("migrate", false, "Run database migrations on startup")
+		operatorToken = flag.String("operator-token", os.Getenv("SHARDC2_OPERATOR_TOKEN"), "Operator authentication token")
+		implantKey    = flag.String("implant-key", os.Getenv("SHARDC2_IMPLANT_KEY"), "Agent implant authentication key")
+		c2URL         = flag.String("c2-url", os.Getenv("SHARDC2_C2_URL"), "External C2 URL for agent auto-deployment (e.g. http://10.0.0.5:8443)")
+		tlsCert       = flag.String("tls-cert", "", "TLS certificate file")
+		tlsKey        = flag.String("tls-key", "", "TLS private key file")
+		generateCert  = flag.Bool("generate-cert", false, "Generate self-signed TLS certificate and exit")
 	)
 	flag.Parse()
 
 	fmt.Print(banner)
 	fmt.Printf("[*] PID: %d\n", os.Getpid())
+
+	if *generateCert {
+		if err := server.GenerateSelfSignedCert("server.crt", "server.key"); err != nil {
+			log.Fatalf("[-] Certificate generation failed: %v", err)
+		}
+		fmt.Println("[+] Generated server.crt and server.key")
+		return
+	}
+
+	if *operatorToken == "" {
+		token, err := middleware.GenerateToken()
+		if err != nil {
+			log.Fatalf("[-] Failed to generate operator token: %v", err)
+		}
+		*operatorToken = token
+		fmt.Printf("[!] No operator token set. Generated: %s\n", token)
+		fmt.Println("[!] Set SHARDC2_OPERATOR_TOKEN or --operator-token to persist this")
+	}
+
+	if *implantKey == "" {
+		key, err := middleware.GenerateToken()
+		if err != nil {
+			log.Fatalf("[-] Failed to generate implant key: %v", err)
+		}
+		*implantKey = key
+		fmt.Printf("[!] No implant key set. Generated: %s\n", key)
+		fmt.Println("[!] Set SHARDC2_IMPLANT_KEY or --implant-key to persist this")
+	}
 
 	db, err := database.New(*dbConn)
 	if err != nil {
@@ -47,9 +82,17 @@ func main() {
 		fmt.Println("[+] Migrations applied")
 	}
 
-	srv := server.New(db)
+	if *c2URL != "" {
+		fmt.Printf("[+] C2 URL for auto-deploy: %s\n", *c2URL)
+	}
 
-	// Graceful shutdown
+	cfg := server.ServerConfig{
+		OperatorToken: *operatorToken,
+		ImplantKey:    *implantKey,
+		C2URL:         *c2URL,
+	}
+	srv := server.New(db, cfg)
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -58,7 +101,20 @@ func main() {
 		srv.Shutdown()
 	}()
 
-	if err := srv.Start(*addr); err != nil {
-		log.Fatalf("[-] Server error: %v", err)
+	if *tlsCert != "" && *tlsKey != "" {
+		if err := srv.StartTLS(*addr, *tlsCert, *tlsKey); err != nil {
+			log.Fatalf("[-] Server error: %v", err)
+		}
+	} else {
+		if err := srv.Start(*addr); err != nil {
+			log.Fatalf("[-] Server error: %v", err)
+		}
 	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
