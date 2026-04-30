@@ -92,3 +92,14 @@ func TestBeaconServerError(t *testing.T) {
 		t.Fatalf("Beacon should not fail on 500 status, but got error: %v", err)
 	}
 }
+
+func TestExecuteCommand(t *testing.T) {
+	agent := New("http://localhost:8080")
+	result, err := agent.ExecuteCommand("echo hello")
+	if err != nil {
+		t.Fatalf("Expected command to execute, got error: %v", err)
+	}
+	if result != "hello\n" {
+		t.Errorf("Expected 'hello\\n', got %q", result)
+	}
+}
