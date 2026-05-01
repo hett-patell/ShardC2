@@ -71,6 +71,9 @@ func (e *Engine) PauseRunningCampaignsOnStartup(ctx context.Context) error {
 	if e.db == nil || !e.policy.SafeMode {
 		return nil
 	}
+	if err := e.StopAllRunningRuns(ctx, "server_restart_safe_mode"); err != nil {
+		log.Printf("[-] Engine: failed to stop running runs on startup: %v", err)
+	}
 	_, err := e.db.ExecContext(ctx, `
 		UPDATE campaigns
 		SET status = 'paused', updated_at = NOW()

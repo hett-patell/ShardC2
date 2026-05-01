@@ -415,3 +415,64 @@ func (h *CampaignHandler) Results(c *fiber.Ctx) error {
 	}
 	return c.JSON(fiber.Map{"tasks": tasks, "count": len(tasks)})
 }
+
+type DryRunResult struct {
+	TotalTargets   int      `json:"total_targets"`
+	BlockedTargets int      `json:"blocked_targets"`
+	PolicyWarnings []string `json:"policy_warnings"`
+}
+
+func DryRunValidate(p policy.Policy, campaignType string, configJSON string) DryRunResult {
+	result := DryRunResult{}
+
+	if campaignType != models.CampaignTypeBrute {
+		return result
+	}
+
+	var cfg bruteCampaignConfig
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		result.PolicyWarnings = append(result.PolicyWarnings, fmt.Sprintf("invalid config: %v", err))
+		return result
+	}
+
+	result.TotalTargets = len(cfg.Targets)
+
+	if cfg.Mode == "external" && !p.AllowExternalBrute {
+		result.PolicyWarnings = append(result.PolicyWarnings, "external brute campaigns are disabled by policy")
+	}
+
+	for _, target := range cfg.Targets {
+		if err := p.ValidateTarget(target); err != nil {
+			result.BlockedTargets++
+			result.PolicyWarnings = append(result.PolicyWarnings, fmt.Sprintf("target %q: %v", target, err))
+		}
+	}
+
+	return result
+}
+
+func (h *CampaignHandler) Validate(c *fiber.Ctx) error {
+	var req struct {
+		Type   string `json:"type"`
+		Config string `json:"config"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
+	}
+	if req.Type == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "type required"})
+	}
+
+	configJSON := req.Config
+	if configJSON == "" {
+		configJSON = "{}"
+	}
+
+	result := DryRunValidate(h.policy, req.Type, configJSON)
+	return c.JSON(fiber.Map{
+		"total_targets":   result.TotalTargets,
+		"blocked_targets": result.BlockedTargets,
+		"policy_warnings": result.PolicyWarnings,
+		"can_launch":      result.BlockedTargets == 0 && len(result.PolicyWarnings) == 0,
+	})
+}
