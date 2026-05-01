@@ -100,7 +100,26 @@ class App {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').classList.remove('hidden');
     this.connectWS();
+    this.loadSafetyBanner();
     this.navigate('dashboard');
+  }
+
+  async loadSafetyBanner() {
+    try {
+      const data = await this.api.get('/safety/status');
+      let banner = document.getElementById('safety-banner');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'safety-banner';
+        const app = document.getElementById('app');
+        app.insertBefore(banner, app.querySelector('.main-content') || app.firstChild);
+      }
+      const blocked = (data.blocked_features || []).join(', ') || 'none';
+      const mode = data.safe_mode ? 'SAFE MODE' : 'UNRESTRICTED';
+      const color = data.safe_mode ? 'var(--green)' : 'var(--red-bright)';
+      banner.style.cssText = `padding:0.4rem 1rem;font-size:0.6rem;letter-spacing:0.1em;border-bottom:1px solid var(--border);display:flex;gap:1.5rem;align-items:center;`;
+      banner.innerHTML = `<span style="color:${color};font-weight:bold">${mode}</span><span style="color:var(--text-muted)">Running: ${data.running_campaigns || 0}</span><span style="color:var(--text-muted)">Blocked: ${blocked}</span>`;
+    } catch (e) { /* ignore if endpoint unavailable */ }
   }
 
   connectWS() {
