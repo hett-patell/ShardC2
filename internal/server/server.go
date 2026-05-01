@@ -22,6 +22,7 @@ import (
 	"github.com/shardc2/shardc2/internal/server/engine"
 	"github.com/shardc2/shardc2/internal/server/handlers"
 	"github.com/shardc2/shardc2/internal/server/middleware"
+	"github.com/shardc2/shardc2/pkg/policy"
 	"github.com/shardc2/shardc2/pkg/profiles"
 )
 
@@ -35,6 +36,7 @@ type ServerConfig struct {
 
 	LoginRateLimitMax    int
 	LoginRateLimitWindow time.Duration
+	Policy               policy.Policy
 }
 
 type Server struct {
@@ -58,7 +60,7 @@ func New(db *database.DB, cfg ServerConfig) *Server {
 		Format: "${time} | ${status} | ${latency} | ${ip} | ${method} ${path}\n",
 	}))
 
-	s := &Server{app: app, db: db, config: cfg, logger: NewLogger(os.Stdout, "INFO"), engine: engine.New(db, cfg.C2URL, cfg.ImplantKey)}
+	s := &Server{app: app, db: db, config: cfg, logger: NewLogger(os.Stdout, "INFO"), engine: engine.NewWithPolicy(db, cfg.C2URL, cfg.ImplantKey, cfg.Policy)}
 	s.setupRoutes()
 
 	app.Static("/dashboard", "./web/dashboard")
@@ -83,7 +85,7 @@ func (s *Server) setupRoutes() {
 	botHandler := handlers.NewBotHandler(s.db)
 	cmdHandler := handlers.NewCommandHandler(s.db, wsHub)
 	credHandler := handlers.NewCredentialHandler(s.db)
-	campHandler := handlers.NewCampaignHandler(s.db)
+	campHandler := handlers.NewCampaignHandler(s.db, s.config.Policy)
 	exfilHandler := handlers.NewExfilHandler(s.db)
 	opHandler := handlers.NewOperatorHandler(s.db, s.config.JWTSecret)
 

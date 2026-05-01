@@ -2,19 +2,56 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/shardc2/shardc2/internal/database"
 	"github.com/shardc2/shardc2/pkg/models"
+	"github.com/shardc2/shardc2/pkg/policy"
 )
 
 type CampaignHandler struct {
-	db *database.DB
+	db     *database.DB
+	policy policy.Policy
 }
 
-func NewCampaignHandler(db *database.DB) *CampaignHandler {
-	return &CampaignHandler{db: db}
+func NewCampaignHandler(db *database.DB, policies ...policy.Policy) *CampaignHandler {
+	p := policy.Default()
+	if len(policies) > 0 {
+		p = policies[0]
+	}
+	return &CampaignHandler{db: db, policy: p}
+}
+
+type bruteCampaignConfig struct {
+	Mode    string   `json:"mode"`
+	Targets []string `json:"targets"`
+}
+
+func ValidateCampaignConfig(p policy.Policy, campaignType string, configJSON string) error {
+	if configJSON == "" {
+		configJSON = "{}"
+	}
+
+	if campaignType != models.CampaignTypeBrute {
+		return nil
+	}
+
+	var cfg bruteCampaignConfig
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		return fmt.Errorf("invalid brute campaign config: %w", err)
+	}
+	if cfg.Mode == "external" && !p.AllowExternalBrute {
+		return fmt.Errorf("external brute campaigns are disabled by policy")
+	}
+	for _, target := range cfg.Targets {
+		if err := p.ValidateTarget(target); err != nil {
+			return fmt.Errorf("target %q rejected by policy: %w", target, err)
+		}
+	}
+	return nil
 }
 
 func (h *CampaignHandler) Create(c *fiber.Ctx) error {
@@ -45,6 +82,9 @@ func (h *CampaignHandler) Create(c *fiber.Ctx) error {
 	configVal := nilIfEmpty(req.Config)
 	if configVal == nil {
 		configVal = "{}"
+	}
+	if err := ValidateCampaignConfig(h.policy, req.Type, configVal.(string)); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	var id string
@@ -273,8 +313,8 @@ func (h *CampaignHandler) ListBots(c *fiber.Ctx) error {
 func (h *CampaignHandler) Launch(c *fiber.Ctx) error {
 	campID := c.Params("id")
 
-	var status string
-	err := h.db.QueryRow(`SELECT status FROM campaigns WHERE id = $1`, campID).Scan(&status)
+	var status, campaignType, config string
+	err := h.db.QueryRow(`SELECT status, type, COALESCE(config::text, '{}') FROM campaigns WHERE id = $1`, campID).Scan(&status, &campaignType, &config)
 	if err == sql.ErrNoRows {
 		return c.Status(404).JSON(fiber.Map{"error": "campaign not found"})
 	}
@@ -287,6 +327,9 @@ func (h *CampaignHandler) Launch(c *fiber.Ctx) error {
 	}
 	if status == models.CampaignStatusCompleted {
 		return c.Status(400).JSON(fiber.Map{"error": "campaign already completed"})
+	}
+	if err := ValidateCampaignConfig(h.policy, campaignType, config); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	var botCount int
