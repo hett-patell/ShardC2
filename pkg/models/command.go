@@ -24,6 +24,7 @@ type Command struct {
 	Payload    string     `json:"payload"`
 	Output     string     `json:"output"`
 	Status     string     `json:"status"`
+	Timeout    int        `json:"timeout,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	ExecutedAt *time.Time `json:"executed_at,omitempty"`
 }

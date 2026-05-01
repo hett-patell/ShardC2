@@ -1,0 +1,1 @@
+ALTER TABLE commands ADD COLUMN IF NOT EXISTS timeout_seconds INTEGER DEFAULT 0;

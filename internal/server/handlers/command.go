@@ -21,6 +21,7 @@ func (h *CommandHandler) Create(c *fiber.Ctx) error {
 		BotID   string `json:"bot_id"`
 		Type    string `json:"type"`
 		Payload string `json:"payload"`
+		Timeout int    `json:"timeout"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
@@ -46,11 +47,15 @@ func (h *CommandHandler) Create(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid command type"})
 	}
 
+	if req.Timeout < 0 || req.Timeout > 3600 {
+		return c.Status(400).JSON(fiber.Map{"error": "timeout must be 0-3600 seconds"})
+	}
+
 	var cmdID string
 	err := h.db.QueryRow(`
-		INSERT INTO commands (bot_id, type, payload)
-		VALUES ($1, $2, $3) RETURNING id`,
-		req.BotID, req.Type, req.Payload,
+		INSERT INTO commands (bot_id, type, payload, timeout_seconds)
+		VALUES ($1, $2, $3, $4) RETURNING id`,
+		req.BotID, req.Type, req.Payload, req.Timeout,
 	).Scan(&cmdID)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to create command"})
@@ -77,7 +82,7 @@ func (h *CommandHandler) getPending(c *fiber.Ctx, botID string) error {
 			WHERE bot_id = $1 AND status = 'pending'
 			ORDER BY created_at ASC
 		)
-		RETURNING id, type, payload`, botID)
+		RETURNING id, type, payload, COALESCE(timeout_seconds, 0)`, botID)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to fetch commands"})
 	}
@@ -86,10 +91,15 @@ func (h *CommandHandler) getPending(c *fiber.Ctx, botID string) error {
 	var cmds []fiber.Map
 	for rows.Next() {
 		var id, cmdType, payload string
-		if err := rows.Scan(&id, &cmdType, &payload); err != nil {
+		var timeout int
+		if err := rows.Scan(&id, &cmdType, &payload, &timeout); err != nil {
 			continue
 		}
-		cmds = append(cmds, fiber.Map{"id": id, "type": cmdType, "payload": payload})
+		cmd := fiber.Map{"id": id, "type": cmdType, "payload": payload}
+		if timeout > 0 {
+			cmd["timeout"] = timeout
+		}
+		cmds = append(cmds, cmd)
 	}
 	if cmds == nil {
 		cmds = []fiber.Map{}

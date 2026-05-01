@@ -125,7 +125,7 @@ func TestBeaconServerError(t *testing.T) {
 
 func TestExecuteCommand(t *testing.T) {
 	a := newTestAgent("http://localhost")
-	result, err := a.ExecuteCommand(context.Background(), "echo hello")
+	result, err := a.ExecuteCommand(context.Background(), "echo hello", 0)
 	if err != nil {
 		t.Fatalf("Expected command to execute: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestExecuteCommand(t *testing.T) {
 
 func TestExecuteCommandWithPipes(t *testing.T) {
 	a := newTestAgent("http://localhost")
-	result, err := a.ExecuteCommand(context.Background(), "echo 'hello world' | wc -w")
+	result, err := a.ExecuteCommand(context.Background(), "echo 'hello world' | wc -w", 0)
 	if err != nil {
 		t.Fatalf("Expected command to execute: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestExecuteCommandWithPipes(t *testing.T) {
 
 func TestExecuteCommandEmpty(t *testing.T) {
 	a := newTestAgent("http://localhost")
-	_, err := a.ExecuteCommand(context.Background(), "")
+	_, err := a.ExecuteCommand(context.Background(), "", 0)
 	if err == nil {
 		t.Fatal("Expected empty command to fail")
 	}
