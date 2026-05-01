@@ -786,8 +786,8 @@ class App {
       recon: `
         <div style="color:var(--text-muted);font-size:0.65rem;letter-spacing:0.1em;margin-bottom:0.5rem">RECON MODULES</div>
         <div class="bot-picker">
-          ${['sysinfo','network','users','software','cloud','containers','sensitive_files','internal_network'].map(m =>
-            `<div class="bot-chip selected" data-module="${m}" onclick="this.classList.toggle('selected')">${m.replace('_',' ').toUpperCase()}</div>`
+          ${['sysinfo','network','users','software','cloud','containers','sensitive_files','internal_network','privesc','secrets','lateral_targets','persistence_check','process_inspect'].map(m =>
+            `<div class="bot-chip selected" data-module="${m}" onclick="this.classList.toggle('selected')">${m.replace(/_/g,' ').toUpperCase()}</div>`
           ).join('')}
         </div>`,
       brute: `
