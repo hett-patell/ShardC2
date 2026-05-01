@@ -663,12 +663,23 @@ class App {
           <td>${c.port}</td>
           <td><span class="os-tag">${esc(c.service).toUpperCase()}</span></td>
           <td style="color:var(--red-bright)">${esc(c.username)}</td>
-          <td style="color:var(--yellow)">${esc(c.password)}</td>
+          <td style="color:var(--yellow)"><span class="masked-pw">${esc(c.password)}</span> <button class="btn-sm" onclick="app.revealCredential('${c.id}', this)">REVEAL</button></td>
           <td>${c.valid ? '<span class="badge badge-active">VALID</span>' : '<span class="badge badge-dead">INVALID</span>'}</td>
           <td>${c.bot_id ? c.bot_id.substring(0, 8) : '-'}</td>
           <td>${timeAgo(c.discovered_at)}</td>
           <td><button class="btn-sm btn-danger" onclick="app.deleteCredential('${c.id}')">DELETE</button></td>
         </tr>`).join('')}</tbody></table></div>`;
+  }
+
+  async revealCredential(id, btn) {
+    try {
+      const data = await this.api.get(`/credentials/${id}/reveal`);
+      const span = btn.previousElementSibling;
+      if (span) span.textContent = data.password || '';
+      btn.remove();
+    } catch (e) {
+      this.showToast('Failed to reveal credential', 'error');
+    }
   }
 
   async deleteCredential(id) {
@@ -778,7 +789,7 @@ class App {
           </div>
           <div class="form-group">
             <label>Passwords (comma-separated)</label>
-            <input type="text" id="brute-passes" placeholder="password, admin123" value="password, admin, root, toor, 123456, P@ssw0rd">
+            <input type="text" id="brute-passes" placeholder="Enter passwords for authorized lab testing">
           </div>
           <div class="form-group">
             <label>Workers (concurrent threads)</label>
