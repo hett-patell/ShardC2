@@ -75,15 +75,17 @@ func PayloadCrypto(key []byte) fiber.Handler {
 			return c.Next()
 		}
 
-		// Verify HMAC signature if present
+		// Require and verify HMAC signature.
 		sig := c.Get("X-Signature")
 		tsStr := c.Get("X-Timestamp")
-		if sig != "" && tsStr != "" {
-			ts, err := strconv.ParseInt(tsStr, 10, 64)
-			if err != nil || !crypto.Verify(c.Method(), c.Path(), c.Body(), key, ts, sig) {
-				log.Printf("[!] Auth failure: invalid HMAC signature from %s %s %s", c.IP(), c.Method(), c.Path())
-				return c.Status(403).JSON(fiber.Map{"error": "invalid signature"})
-			}
+		if sig == "" || tsStr == "" {
+			log.Printf("[!] Auth failure: missing HMAC signature from %s %s %s", c.IP(), c.Method(), c.Path())
+			return c.Status(403).JSON(fiber.Map{"error": "signature required"})
+		}
+		ts, err := strconv.ParseInt(tsStr, 10, 64)
+		if err != nil || !crypto.Verify(c.Method(), c.Path(), c.Body(), key, ts, sig) {
+			log.Printf("[!] Auth failure: invalid HMAC signature from %s %s %s", c.IP(), c.Method(), c.Path())
+			return c.Status(403).JSON(fiber.Map{"error": "invalid signature"})
 		}
 
 		// Decrypt request body if encrypted
@@ -98,7 +100,7 @@ func PayloadCrypto(key []byte) fiber.Handler {
 		}
 
 		// Process the request
-		err := c.Next()
+		err = c.Next()
 		if err != nil {
 			return err
 		}
