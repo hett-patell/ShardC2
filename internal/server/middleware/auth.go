@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/shardc2/shardc2/internal/database"
 	"github.com/shardc2/shardc2/pkg/crypto"
 )
@@ -124,4 +126,49 @@ func GenerateToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+func JWTAuth(secret []byte, requiredRoles ...string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		auth := c.Get("Authorization")
+		if len(auth) < 8 || !strings.HasPrefix(auth, "Bearer ") {
+			return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
+		}
+		tokenStr := auth[7:]
+
+		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method")
+			}
+			return secret, nil
+		})
+		if err != nil || !token.Valid {
+			log.Printf("[!] JWT auth failure from %s %s %s", c.IP(), c.Method(), c.Path())
+			return c.Status(401).JSON(fiber.Map{"error": "invalid token"})
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			return c.Status(401).JSON(fiber.Map{"error": "invalid claims"})
+		}
+
+		role, _ := claims["role"].(string)
+		if len(requiredRoles) > 0 {
+			allowed := false
+			for _, r := range requiredRoles {
+				if role == r {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return c.Status(403).JSON(fiber.Map{"error": "insufficient permissions"})
+			}
+		}
+
+		c.Locals("operator_id", claims["sub"])
+		c.Locals("operator_user", claims["usr"])
+		c.Locals("operator_role", role)
+		return c.Next()
+	}
 }

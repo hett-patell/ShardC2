@@ -9,6 +9,7 @@ const (
 	CmdTypeSleep    = "sleep"
 	CmdTypePersist  = "persist"
 	CmdTypeKill     = "kill"
+	CmdTypeProxy    = "proxy"
 
 	StatusPending   = "pending"
 	StatusExecuting = "executing"

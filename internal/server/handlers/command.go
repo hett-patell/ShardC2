@@ -43,6 +43,7 @@ func (h *CommandHandler) Create(c *fiber.Ctx) error {
 	validTypes := map[string]bool{
 		models.CmdTypeShell: true, models.CmdTypeUpload: true, models.CmdTypeDownload: true,
 		models.CmdTypeSleep: true, models.CmdTypePersist: true, models.CmdTypeKill: true,
+		models.CmdTypeProxy: true,
 	}
 	if !validTypes[req.Type] {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid command type"})
@@ -215,6 +216,7 @@ func (h *CommandHandler) BatchCreate(c *fiber.Ctx) error {
 	validTypes := map[string]bool{
 		models.CmdTypeShell: true, models.CmdTypeUpload: true, models.CmdTypeDownload: true,
 		models.CmdTypeSleep: true, models.CmdTypePersist: true, models.CmdTypeKill: true,
+		models.CmdTypeProxy: true,
 	}
 	if !validTypes[req.Type] {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid command type"})

