@@ -9,6 +9,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
@@ -56,13 +57,18 @@ func AgentAuth(db *database.DB) fiber.Handler {
 			return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
 		}
 		var botID string
-		err := db.QueryRow("SELECT bot_id FROM bot_tokens WHERE token = $1", token).Scan(&botID)
+		var expiresAt *time.Time
+		err := db.QueryRow("SELECT bot_id, expires_at FROM bot_tokens WHERE token = $1", token).Scan(&botID, &expiresAt)
 		if err == sql.ErrNoRows {
 			log.Printf("[!] Auth failure: agent invalid token from %s %s %s", c.IP(), c.Method(), c.Path())
 			return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
 		}
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "internal error"})
+		}
+		if expiresAt != nil && time.Now().After(*expiresAt) {
+			log.Printf("[!] Auth failure: agent expired token from %s %s %s", c.IP(), c.Method(), c.Path())
+			return c.Status(403).JSON(fiber.Map{"error": "token expired"})
 		}
 		c.Locals("bot_id", botID)
 		return c.Next()
