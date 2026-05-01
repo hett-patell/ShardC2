@@ -190,7 +190,13 @@ func (s *Server) setupRoutes() {
 		p = profiles.Default()
 	}
 
-	api.Get("/agent/binary", auditedOpAuth, auditAction("agent_binary.download", "agent_binary"), func(c *fiber.Ctx) error {
+	binaryAuth := func(c *fiber.Ctx) error {
+		if c.Get("X-Implant-Key") != "" {
+			return implantMW(c)
+		}
+		return auditedOpAuth(c)
+	}
+	api.Get("/agent/binary", binaryAuth, auditAction("agent_binary.download", "agent_binary"), func(c *fiber.Ctx) error {
 		arch := c.Query("arch", "arm64")
 		if arch == "amd64" || arch == "x86_64" {
 			return c.SendFile("./bin/shardc2-agent-amd64", false)
