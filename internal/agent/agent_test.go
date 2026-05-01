@@ -238,3 +238,51 @@ func TestCheckSandbox(t *testing.T) {
 	}
 	// Just verify it runs without panic
 }
+
+func TestValidateTLSConfigRequiresCACertOrInsecureForHTTPS(t *testing.T) {
+	err := ValidateTLSConfig(Config{ServerURL: "https://c2.example.com"})
+	if err == nil {
+		t.Fatal("expected error for HTTPS without CA cert or insecure flag")
+	}
+}
+
+func TestValidateTLSConfigAcceptsCACert(t *testing.T) {
+	err := ValidateTLSConfig(Config{ServerURL: "https://c2.example.com", CACert: "/path/to/ca.pem"})
+	if err != nil {
+		t.Fatalf("expected no error with CA cert: %v", err)
+	}
+}
+
+func TestValidateTLSConfigAcceptsInsecureFlag(t *testing.T) {
+	err := ValidateTLSConfig(Config{ServerURL: "https://c2.example.com", InsecureTLSForLab: true})
+	if err != nil {
+		t.Fatalf("expected no error with insecure flag: %v", err)
+	}
+}
+
+func TestValidateTLSConfigAllowsHTTPWithoutCert(t *testing.T) {
+	err := ValidateTLSConfig(Config{ServerURL: "http://127.0.0.1:8443"})
+	if err != nil {
+		t.Fatalf("expected no error for HTTP: %v", err)
+	}
+}
+
+func TestBuildTLSConfigHTTPReturnsNil(t *testing.T) {
+	cfg, err := buildTLSConfig(Config{ServerURL: "http://127.0.0.1:8443"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg != nil {
+		t.Fatal("expected nil TLS config for HTTP")
+	}
+}
+
+func TestBuildTLSConfigInsecureSetsSkipVerify(t *testing.T) {
+	cfg, err := buildTLSConfig(Config{ServerURL: "https://c2.example.com", InsecureTLSForLab: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg == nil || !cfg.InsecureSkipVerify {
+		t.Fatal("expected InsecureSkipVerify=true")
+	}
+}
