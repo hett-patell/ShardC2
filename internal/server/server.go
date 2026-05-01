@@ -23,6 +23,7 @@ import (
 	"github.com/gofiber/websocket/v2"
 	"github.com/shardc2/shardc2/internal/database"
 	"github.com/shardc2/shardc2/internal/server/audit"
+	"github.com/shardc2/shardc2/internal/server/builds"
 	"github.com/shardc2/shardc2/internal/server/engine"
 	"github.com/shardc2/shardc2/internal/server/handlers"
 	"github.com/shardc2/shardc2/internal/server/middleware"
@@ -264,6 +265,12 @@ func (s *Server) setupRoutes() {
 	exfil.Delete("/:id", auditAction("exfil.delete", "exfil"), exfilHandler.Delete)
 
 	op.Get("/stats", botHandler.Stats)
+
+	buildHandler := handlers.NewBuildHandler(s.db, builds.NewLocalBuilder("."))
+	blds := op.Group("/builds")
+	blds.Post("/", auditAction("build.create", "build"), buildHandler.Create)
+	blds.Get("/:id", buildHandler.Get)
+	blds.Get("/:id/download", auditAction("build.download", "build"), buildHandler.Download)
 
 	// Admin-only operator management
 	opAdmin := op.Group("/operators", func(c *fiber.Ctx) error {
