@@ -14,6 +14,7 @@ import (
 	"github.com/shardc2/shardc2/internal/server"
 	"github.com/shardc2/shardc2/internal/server/middleware"
 	"github.com/shardc2/shardc2/pkg/crypto"
+	"github.com/shardc2/shardc2/pkg/policy"
 	"github.com/shardc2/shardc2/pkg/profiles"
 )
 
@@ -41,6 +42,7 @@ func main() {
 		generateCert  = flag.Bool("generate-cert", false, "Generate self-signed TLS certificate and exit")
 		profileName   = flag.String("profile", "default", "Malleable C2 profile (default, cloudfront, wordpress, or path to JSON)")
 		jwtSecret     = flag.String("jwt-secret", os.Getenv("SHARDC2_JWT_SECRET"), "JWT signing secret for operator auth")
+		policyFile    = flag.String("policy-file", os.Getenv("SHARDC2_POLICY_FILE"), "Safety policy JSON file")
 	)
 	flag.Parse()
 
@@ -110,6 +112,13 @@ func main() {
 	if *profileName != "default" {
 		fmt.Printf("[+] Malleable profile: %s\n", profile.Name)
 	}
+	safetyPolicy, err := loadServerPolicy(*policyFile)
+	if err != nil {
+		log.Fatalf("[-] Failed to load safety policy: %v", err)
+	}
+	if safetyPolicy.SafeMode {
+		fmt.Println("[+] Safety policy: safe mode enabled")
+	}
 
 	cfg := server.ServerConfig{
 		OperatorToken: *operatorToken,
@@ -118,6 +127,7 @@ func main() {
 		C2URL:         *c2URL,
 		Profile:       profile,
 		JWTSecret:     jwtSecretBytes,
+		Policy:        safetyPolicy,
 	}
 	srv := server.New(db, cfg)
 
@@ -170,6 +180,10 @@ func deriveServerSecrets(operatorTokenFlag, jwtSecretFlag string, notice io.Writ
 	}
 
 	return operatorToken, []byte(jwtSecret), generatedOperatorToken, nil
+}
+
+func loadServerPolicy(path string) (policy.Policy, error) {
+	return policy.LoadFile(path)
 }
 
 func envOrDefault(key, fallback string) string {
