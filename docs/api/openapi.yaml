@@ -1,0 +1,316 @@
+openapi: "3.0.3"
+info:
+  title: ShardC2 Operator API
+  version: "0.2.0"
+  description: REST API for ShardC2 command and control framework operator management.
+servers:
+  - url: http://localhost:8443/api/v1
+    description: Local development
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: JWT token from /auth/login or bootstrap token for initial admin creation.
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    Bot:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        hostname: { type: string }
+        ip_address: { type: string }
+        os: { type: string }
+        architecture: { type: string }
+        username: { type: string }
+        mode: { type: string, enum: [beacon, session] }
+        status: { type: string }
+        last_seen: { type: string, format: date-time }
+    Command:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        bot_id: { type: string, format: uuid }
+        type: { type: string }
+        payload: { type: string }
+        status: { type: string }
+    Campaign:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string }
+        status: { type: string }
+    Credential:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        password: { type: string, description: "Masked by default. Use /credentials/{id}/reveal to see plaintext." }
+        target: { type: string }
+        port: { type: integer }
+        valid: { type: boolean }
+    Build:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        goos: { type: string }
+        goarch: { type: string }
+        profile: { type: string }
+        status: { type: string, enum: [pending, building, completed, failed] }
+    Plugin:
+      type: object
+      properties:
+        name: { type: string }
+        version: { type: string }
+        description: { type: string }
+        execution: { type: string, enum: [disabled] }
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: Service healthy
+  /auth/login:
+    post:
+      summary: Operator login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: JWT token returned
+        "401":
+          description: Invalid credentials
+        "429":
+          description: Rate limited
+  /bots:
+    get:
+      summary: List registered bots
+      responses:
+        "200":
+          description: Bot list
+  /bots/{id}:
+    get:
+      summary: Get bot details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Bot details
+    delete:
+      summary: Remove bot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Bot removed
+  /commands:
+    post:
+      summary: Create command
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bot_id: { type: string, format: uuid }
+                type: { type: string }
+                payload: { type: string }
+                timeout: { type: integer }
+      responses:
+        "201":
+          description: Command created
+  /commands/batch:
+    post:
+      summary: Batch create commands
+      responses:
+        "201":
+          description: Commands created
+  /commands/history/{bot_id}:
+    get:
+      summary: Command history for bot
+      parameters:
+        - name: bot_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Command history
+  /credentials:
+    get:
+      summary: List credentials (passwords masked)
+      responses:
+        "200":
+          description: Credential list
+  /credentials/{id}/reveal:
+    get:
+      summary: Reveal plaintext password (audited)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Plaintext password
+  /campaigns:
+    post:
+      summary: Create campaign
+      responses:
+        "201":
+          description: Campaign created
+    get:
+      summary: List campaigns
+      responses:
+        "200":
+          description: Campaign list
+  /campaigns/{id}:
+    get:
+      summary: Get campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Campaign details
+  /campaigns/{id}/launch:
+    post:
+      summary: Launch campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Campaign launched
+  /campaigns/validate:
+    post:
+      summary: Dry-run validate campaign config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type: { type: string }
+                config: { type: string }
+      responses:
+        "200":
+          description: Validation result with target counts and policy warnings
+  /exfil:
+    get:
+      summary: List exfiltrated data
+      responses:
+        "200":
+          description: Exfil list
+  /exfil/{id}:
+    get:
+      summary: Download exfil data
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: File download
+  /builds:
+    post:
+      summary: Request agent build
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                goos: { type: string }
+                goarch: { type: string }
+                profile: { type: string }
+      responses:
+        "202":
+          description: Build queued
+  /builds/{id}:
+    get:
+      summary: Get build status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Build details
+  /builds/{id}/download:
+    get:
+      summary: Download build artifact
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Agent binary
+  /plugins:
+    get:
+      summary: List installed plugins
+      responses:
+        "200":
+          description: Plugin list
+  /stats:
+    get:
+      summary: Server statistics
+      responses:
+        "200":
+          description: Stats
+  /operators:
+    post:
+      summary: Create operator (admin only, or bootstrap token for first admin)
+      responses:
+        "201":
+          description: Operator created
+    get:
+      summary: List operators (admin only)
+      responses:
+        "200":
+          description: Operator list
+  /operators/{id}:
+    delete:
+      summary: Deactivate operator (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Operator deactivated
