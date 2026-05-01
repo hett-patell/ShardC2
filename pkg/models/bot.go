@@ -2,6 +2,11 @@ package models
 
 import "time"
 
+const (
+	AgentModeBeacon  = "beacon"
+	AgentModeSession = "session"
+)
+
 type Bot struct {
 	ID             string    `json:"id"`
 	Hostname       string    `json:"hostname"`
@@ -11,6 +16,7 @@ type Bot struct {
 	Architecture   string    `json:"architecture"`
 	Username       string    `json:"username"`
 	Privileged     bool      `json:"privileged"`
+	Mode           string    `json:"mode"`
 	LastSeen       time.Time `json:"last_seen"`
 	Status         string    `json:"status"`
 	BeaconInterval int       `json:"beacon_interval"`
