@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -53,14 +55,14 @@ func main() {
 		return
 	}
 
-	if *operatorToken == "" {
-		token, err := middleware.GenerateToken()
-		if err != nil {
-			log.Fatalf("[-] Failed to generate operator token: %v", err)
-		}
-		*operatorToken = token
-		fmt.Printf("[!] No operator token set. Generated: %s\n", token)
-		fmt.Println("[!] Set SHARDC2_OPERATOR_TOKEN or --operator-token to persist this")
+	derivedOperatorToken, jwtSecretBytes, generatedOperatorToken, err := deriveServerSecrets(*operatorToken, *jwtSecret, os.Stdout)
+	if err != nil {
+		log.Fatalf("[-] Secret configuration failed: %v", err)
+	}
+	*operatorToken = derivedOperatorToken
+	if generatedOperatorToken {
+		fmt.Println("[!] No operator token set. Generated a temporary operator token for this process.")
+		fmt.Println("[!] Set SHARDC2_OPERATOR_TOKEN or --operator-token to persist a known value")
 	}
 
 	if *implantKey == "" {
@@ -109,11 +111,6 @@ func main() {
 		fmt.Printf("[+] Malleable profile: %s\n", profile.Name)
 	}
 
-	jwtSecretBytes := []byte(*jwtSecret)
-	if len(jwtSecretBytes) == 0 {
-		jwtSecretBytes = []byte(*operatorToken)
-	}
-
 	cfg := server.ServerConfig{
 		OperatorToken: *operatorToken,
 		ImplantKey:    *implantKey,
@@ -141,6 +138,38 @@ func main() {
 			log.Fatalf("[-] Server error: %v", err)
 		}
 	}
+}
+
+func deriveServerSecrets(operatorTokenFlag, jwtSecretFlag string, notice io.Writer) (string, []byte, bool, error) {
+	operatorToken := operatorTokenFlag
+	generatedOperatorToken := false
+	if operatorToken == "" {
+		token, err := middleware.GenerateToken()
+		if err != nil {
+			return "", nil, false, fmt.Errorf("generate operator token: %w", err)
+		}
+		operatorToken = token
+		generatedOperatorToken = true
+	}
+
+	jwtSecret := jwtSecretFlag
+	if jwtSecret == "" {
+		secret, err := middleware.GenerateToken()
+		if err != nil {
+			return "", nil, false, fmt.Errorf("generate jwt secret: %w", err)
+		}
+		jwtSecret = secret
+		if notice != nil {
+			fmt.Fprintln(notice, "[!] No JWT secret set. Generated a temporary JWT signing secret for this process.")
+			fmt.Fprintln(notice, "[!] Set SHARDC2_JWT_SECRET or --jwt-secret to persist a known value")
+		}
+	}
+
+	if operatorToken == jwtSecret {
+		return "", nil, false, errors.New("operator token and JWT secret must be different")
+	}
+
+	return operatorToken, []byte(jwtSecret), generatedOperatorToken, nil
 }
 
 func envOrDefault(key, fallback string) string {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -96,7 +97,7 @@ func (s *SOCKS5Server) handleConn(conn net.Conn) {
 		return
 	}
 
-	target := fmt.Sprintf("%s:%d", targetAddr, targetPort)
+	target := socksTarget(targetAddr, targetPort)
 	remote, err := net.DialTimeout("tcp", target, 10*time.Second)
 	if err != nil {
 		conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
@@ -112,6 +113,10 @@ func (s *SOCKS5Server) handleConn(conn net.Conn) {
 	remote.SetDeadline(time.Time{})
 
 	relay(conn, remote)
+}
+
+func socksTarget(host string, port uint16) string {
+	return net.JoinHostPort(host, strconv.Itoa(int(port)))
 }
 
 func relay(a, b net.Conn) {

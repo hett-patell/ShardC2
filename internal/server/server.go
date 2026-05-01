@@ -32,6 +32,9 @@ type ServerConfig struct {
 	C2URL         string
 	Profile       *profiles.Profile
 	JWTSecret     []byte
+
+	LoginRateLimitMax    int
+	LoginRateLimitWindow time.Duration
 }
 
 type Server struct {
@@ -82,6 +85,20 @@ func (s *Server) setupRoutes() {
 	credHandler := handlers.NewCredentialHandler(s.db)
 	campHandler := handlers.NewCampaignHandler(s.db)
 	exfilHandler := handlers.NewExfilHandler(s.db)
+	opHandler := handlers.NewOperatorHandler(s.db, s.config.JWTSecret)
+
+	// Operator routes — accept legacy bearer token OR JWT
+	opAuth := func(c *fiber.Ctx) error {
+		auth := c.Get("Authorization")
+		if len(auth) > 7 && auth[:7] == "Bearer " {
+			token := auth[7:]
+			if token == s.config.OperatorToken {
+				c.Locals("operator_role", "admin")
+				return c.Next()
+			}
+		}
+		return middleware.JWTAuth(s.config.JWTSecret)(c)
+	}
 
 	// Agent routes using malleable profile paths
 	implantMW := middleware.ImplantAuth(s.config.ImplantKey)
@@ -94,7 +111,7 @@ func (s *Server) setupRoutes() {
 		p = profiles.Default()
 	}
 
-	api.Get("/agent/binary", func(c *fiber.Ctx) error {
+	api.Get("/agent/binary", opAuth, func(c *fiber.Ctx) error {
 		arch := c.Query("arch", "arm64")
 		if arch == "amd64" || arch == "x86_64" {
 			return c.SendFile("./bin/shardc2-agent-amd64", false)
@@ -121,21 +138,15 @@ func (s *Server) setupRoutes() {
 	}, websocket.New(handlers.WSHandler(wsHub)))
 
 	// Operator auth & login routes
-	opHandler := handlers.NewOperatorHandler(s.db, s.config.JWTSecret)
-	api.Post("/auth/login", opHandler.Login)
-
-	// Operator routes — accept legacy bearer token OR JWT
-	opAuth := func(c *fiber.Ctx) error {
-		auth := c.Get("Authorization")
-		if len(auth) > 7 && auth[:7] == "Bearer " {
-			token := auth[7:]
-			if token == s.config.OperatorToken {
-				c.Locals("operator_role", "admin")
-				return c.Next()
-			}
-		}
-		return middleware.JWTAuth(s.config.JWTSecret)(c)
+	loginLimitMax := s.config.LoginRateLimitMax
+	if loginLimitMax == 0 {
+		loginLimitMax = 5
 	}
+	loginLimitWindow := s.config.LoginRateLimitWindow
+	if loginLimitWindow == 0 {
+		loginLimitWindow = time.Minute
+	}
+	api.Post("/auth/login", limiter.New(limiter.Config{Max: loginLimitMax, Expiration: loginLimitWindow}), opHandler.Login)
 
 	op := api.Group("", opAuth)
 	op.Use(limiter.New(limiter.Config{Max: 120, Expiration: time.Minute}))
