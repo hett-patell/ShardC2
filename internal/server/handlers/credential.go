@@ -95,7 +95,7 @@ func (h *CredentialHandler) List(c *fiber.Ctx) error {
 			continue
 		}
 		creds = append(creds, fiber.Map{
-			"id": id, "username": username, "password": password, "target": target,
+			"id": id, "username": username, "password": "********", "target": target,
 			"port": port, "service": service, "valid": valid, "bot_id": botID,
 			"discovered_at": discoveredAt,
 		})
@@ -104,6 +104,16 @@ func (h *CredentialHandler) List(c *fiber.Ctx) error {
 		creds = []fiber.Map{}
 	}
 	return c.JSON(fiber.Map{"credentials": creds, "count": len(creds)})
+}
+
+func (h *CredentialHandler) Reveal(c *fiber.Ctx) error {
+	id := c.Params("id")
+	var password string
+	err := h.db.QueryRow(`SELECT password FROM credentials WHERE id = $1`, id).Scan(&password)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "credential not found"})
+	}
+	return c.JSON(fiber.Map{"id": id, "password": password})
 }
 
 func (h *CredentialHandler) Delete(c *fiber.Ctx) error {

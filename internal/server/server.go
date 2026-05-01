@@ -241,6 +241,7 @@ func (s *Server) setupRoutes() {
 	creds := op.Group("/credentials")
 	creds.Post("/", credHandler.Submit)
 	creds.Get("/", auditAction("credential.list", "credential"), credHandler.List)
+	creds.Get("/:id/reveal", auditAction("credential.reveal", "credential"), credHandler.Reveal)
 	creds.Delete("/:id", auditAction("credential.delete", "credential"), credHandler.Delete)
 
 	camps := op.Group("/campaigns")
