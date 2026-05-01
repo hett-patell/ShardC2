@@ -919,7 +919,8 @@ class App {
     const botIds = this.getSelectedBotIds();
 
     if (!name) { alert('Operation name required'); return; }
-    if (botIds.length === 0) { alert('Select at least one implant'); return; }
+    const isExternalBrute = type === 'brute' && config.includes('"external"');
+    if (botIds.length === 0 && !isExternalBrute) { alert('Select at least one implant'); return; }
 
     const result = await this.api.post('/campaigns/', { name, type, description: desc, config });
     if (!result.id) { alert('Failed to create campaign'); return; }

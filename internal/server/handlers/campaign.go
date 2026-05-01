@@ -334,7 +334,14 @@ func (h *CampaignHandler) Launch(c *fiber.Ctx) error {
 
 	var botCount int
 	h.db.QueryRow(`SELECT COUNT(*) FROM campaign_bots WHERE campaign_id = $1`, campID).Scan(&botCount)
-	if botCount == 0 {
+	isExternalBrute := false
+	if campaignType == models.CampaignTypeBrute {
+		var cfg bruteCampaignConfig
+		if json.Unmarshal([]byte(config), &cfg) == nil && cfg.Mode == "external" {
+			isExternalBrute = true
+		}
+	}
+	if botCount == 0 && !isExternalBrute {
 		return c.Status(400).JSON(fiber.Map{"error": "no bots assigned to campaign"})
 	}
 
@@ -462,7 +469,15 @@ func (h *CampaignHandler) Replay(c *fiber.Ctx) error {
 		botCount, _ = result.RowsAffected()
 	}
 
-	if req.AutoStart && botCount > 0 {
+	isExternalBrute := false
+	if cType == models.CampaignTypeBrute {
+		var cfg bruteCampaignConfig
+		if json.Unmarshal([]byte(config), &cfg) == nil && cfg.Mode == "external" {
+			isExternalBrute = true
+		}
+	}
+
+	if req.AutoStart && (botCount > 0 || isExternalBrute) {
 		h.db.Exec(`UPDATE campaigns SET status = $1, updated_at = NOW() WHERE id = $2`,
 			models.CampaignStatusRunning, newID)
 		return c.Status(201).JSON(fiber.Map{
