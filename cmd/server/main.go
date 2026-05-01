@@ -30,19 +30,20 @@ const banner = `
 
 func main() {
 	var (
-		addr          = flag.String("addr", ":8443", "Server listen address")
-		dbConn        = flag.String("db", envOrDefault("SHARDC2_DB", "postgres://shardc2:shardc2_secret@localhost:5432/shardc2?sslmode=disable"), "Database connection string")
-		migrate       = flag.Bool("migrate", false, "Run database migrations on startup")
-		operatorToken = flag.String("operator-token", os.Getenv("SHARDC2_OPERATOR_TOKEN"), "Operator authentication token")
-		implantKey    = flag.String("implant-key", os.Getenv("SHARDC2_IMPLANT_KEY"), "Agent implant authentication key")
-		c2URL         = flag.String("c2-url", os.Getenv("SHARDC2_C2_URL"), "External C2 URL for agent auto-deployment (e.g. http://10.0.0.5:8443)")
-		payloadKey    = flag.String("payload-key", os.Getenv("SHARDC2_PAYLOAD_KEY"), "Payload encryption key (hex, 32 bytes)")
-		tlsCert       = flag.String("tls-cert", "", "TLS certificate file")
-		tlsKey        = flag.String("tls-key", "", "TLS private key file")
-		generateCert  = flag.Bool("generate-cert", false, "Generate self-signed TLS certificate and exit")
-		profileName   = flag.String("profile", "default", "Malleable C2 profile (default, cloudfront, wordpress, or path to JSON)")
-		jwtSecret     = flag.String("jwt-secret", os.Getenv("SHARDC2_JWT_SECRET"), "JWT signing secret for operator auth")
-		policyFile    = flag.String("policy-file", os.Getenv("SHARDC2_POLICY_FILE"), "Safety policy JSON file")
+		addr           = flag.String("addr", ":8443", "Server listen address")
+		dbConn         = flag.String("db", envOrDefault("SHARDC2_DB", "postgres://shardc2:shardc2_secret@localhost:5432/shardc2?sslmode=disable"), "Database connection string")
+		migrate        = flag.Bool("migrate", false, "Run database migrations on startup")
+		operatorToken  = flag.String("operator-token", os.Getenv("SHARDC2_OPERATOR_TOKEN"), "Deprecated bootstrap token fallback")
+		bootstrapToken = flag.String("bootstrap-token", envOrDefault("SHARDC2_BOOTSTRAP_TOKEN", os.Getenv("SHARDC2_OPERATOR_TOKEN")), "Bootstrap token for initial admin creation only")
+		implantKey     = flag.String("implant-key", os.Getenv("SHARDC2_IMPLANT_KEY"), "Agent implant authentication key")
+		c2URL          = flag.String("c2-url", os.Getenv("SHARDC2_C2_URL"), "External C2 URL for agent auto-deployment (e.g. http://10.0.0.5:8443)")
+		payloadKey     = flag.String("payload-key", os.Getenv("SHARDC2_PAYLOAD_KEY"), "Payload encryption key (hex, 32 bytes)")
+		tlsCert        = flag.String("tls-cert", "", "TLS certificate file")
+		tlsKey         = flag.String("tls-key", "", "TLS private key file")
+		generateCert   = flag.Bool("generate-cert", false, "Generate self-signed TLS certificate and exit")
+		profileName    = flag.String("profile", "default", "Malleable C2 profile (default, cloudfront, wordpress, or path to JSON)")
+		jwtSecret      = flag.String("jwt-secret", os.Getenv("SHARDC2_JWT_SECRET"), "JWT signing secret for operator auth")
+		policyFile     = flag.String("policy-file", os.Getenv("SHARDC2_POLICY_FILE"), "Safety policy JSON file")
 	)
 	flag.Parse()
 
@@ -121,13 +122,14 @@ func main() {
 	}
 
 	cfg := server.ServerConfig{
-		OperatorToken: *operatorToken,
-		ImplantKey:    *implantKey,
-		PayloadKey:    payloadKeyBytes,
-		C2URL:         *c2URL,
-		Profile:       profile,
-		JWTSecret:     jwtSecretBytes,
-		Policy:        safetyPolicy,
+		OperatorToken:  *operatorToken,
+		ImplantKey:     *implantKey,
+		PayloadKey:     payloadKeyBytes,
+		C2URL:          *c2URL,
+		Profile:        profile,
+		JWTSecret:      jwtSecretBytes,
+		Policy:         safetyPolicy,
+		BootstrapToken: *bootstrapToken,
 	}
 	srv := server.New(db, cfg)
 
