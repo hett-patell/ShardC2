@@ -266,6 +266,9 @@ func (s *Server) setupRoutes() {
 
 	op.Get("/stats", botHandler.Stats)
 
+	pluginHandler := handlers.NewPluginHandler("plugins")
+	op.Get("/plugins", pluginHandler.List)
+
 	buildHandler := handlers.NewBuildHandler(s.db, builds.NewLocalBuilder("."))
 	blds := op.Group("/builds")
 	blds.Post("/", auditAction("build.create", "build"), buildHandler.Create)
