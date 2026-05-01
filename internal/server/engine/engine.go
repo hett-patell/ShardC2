@@ -123,6 +123,23 @@ func (e *Engine) tick(ctx context.Context) {
 }
 
 func (e *Engine) generateTasks(ctx context.Context, campID, campType, config string) {
+	if campType == models.CampaignTypeBrute {
+		var cfg bruteConfig
+		if err := json.Unmarshal([]byte(config), &cfg); err != nil {
+			log.Printf("[-] Campaign %s: invalid brute config: %v", campID[:8], err)
+			return
+		}
+		if err := e.validateBrutePolicy(cfg); err != nil {
+			log.Printf("[-] Campaign %s: brute config blocked by policy: %v", campID[:8], err)
+			e.db.Exec(`UPDATE campaigns SET status = 'paused', updated_at = NOW() WHERE id = $1`, campID)
+			return
+		}
+		if cfg.Mode == "external" {
+			go e.RunExternalBrute(campID, config)
+			return
+		}
+	}
+
 	botIDs := e.getAssignedBots(campID)
 	if len(botIDs) == 0 {
 		log.Printf("[-] Campaign %s: no bots assigned, pausing", campID[:8])
@@ -138,19 +155,7 @@ func (e *Engine) generateTasks(ctx context.Context, campID, campType, config str
 		tasks = ReconTasks(config)
 	case models.CampaignTypeBrute:
 		var cfg bruteConfig
-		if err := json.Unmarshal([]byte(config), &cfg); err != nil {
-			log.Printf("[-] Campaign %s: invalid brute config: %v", campID[:8], err)
-			return
-		}
-		if err := e.validateBrutePolicy(cfg); err != nil {
-			log.Printf("[-] Campaign %s: brute config blocked by policy: %v", campID[:8], err)
-			e.db.Exec(`UPDATE campaigns SET status = 'paused', updated_at = NOW() WHERE id = $1`, campID)
-			return
-		}
-		if cfg.Mode == "external" {
-			go e.RunExternalBrute(campID, config)
-			return
-		}
+		json.Unmarshal([]byte(config), &cfg)
 		tasks, distributed = BruteTasks(e.db, config, botIDs)
 	case models.CampaignTypeExfil:
 		tasks = ExfilTasks(config)
