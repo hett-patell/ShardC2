@@ -44,3 +44,38 @@ func TestValidateCampaignConfigSkipsTargetValidationForAssignedBotCampaigns(t *t
 		})
 	}
 }
+
+func TestDryRunValidationReturnsTargetAndPolicyInfo(t *testing.T) {
+	p := policy.Default()
+
+	result := DryRunValidate(p, models.CampaignTypeBrute, `{"targets":["127.0.0.1","8.8.8.8"],"ports":[22]}`)
+	if result.TotalTargets != 2 {
+		t.Fatalf("total targets: got %d, want 2", result.TotalTargets)
+	}
+	if result.BlockedTargets != 1 {
+		t.Fatalf("blocked targets: got %d, want 1", result.BlockedTargets)
+	}
+	if len(result.PolicyWarnings) == 0 {
+		t.Fatal("expected policy warnings for blocked target")
+	}
+}
+
+func TestDryRunValidationPassesCleanConfig(t *testing.T) {
+	p := policy.Default()
+
+	result := DryRunValidate(p, models.CampaignTypeBrute, `{"targets":["127.0.0.1"],"ports":[22]}`)
+	if result.BlockedTargets != 0 {
+		t.Fatalf("blocked targets: got %d, want 0", result.BlockedTargets)
+	}
+	if len(result.PolicyWarnings) != 0 {
+		t.Fatalf("unexpected policy warnings: %v", result.PolicyWarnings)
+	}
+}
+
+func TestDryRunValidationForNonBruteCampaigns(t *testing.T) {
+	p := policy.Default()
+	result := DryRunValidate(p, models.CampaignTypeRecon, `{}`)
+	if result.BlockedTargets != 0 {
+		t.Fatalf("blocked targets for recon: got %d, want 0", result.BlockedTargets)
+	}
+}
