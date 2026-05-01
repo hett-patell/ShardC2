@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 )
 
 type persistConfig struct {
@@ -34,7 +35,9 @@ var persistMethods = map[string]TaskTemplate{
 
 func PersistTasks(config string) []TaskTemplate {
 	var cfg persistConfig
-	json.Unmarshal([]byte(config), &cfg)
+	if err := json.Unmarshal([]byte(config), &cfg); err != nil {
+		log.Printf("[-] Persist: invalid config, using defaults: %v", err)
+	}
 
 	if len(cfg.Methods) == 0 {
 		cfg.Methods = []string{"cron", "systemd", "bashrc"}

@@ -61,16 +61,19 @@ func (h *CampaignHandler) Create(c *fiber.Ctx) error {
 }
 
 func (h *CampaignHandler) List(c *fiber.Ctx) error {
-	query := `SELECT id, name, COALESCE(description, ''), type, status,
-		COALESCE(config::text, '{}'), total_tasks, completed_tasks, failed_tasks,
-		created_at, updated_at FROM campaigns`
+	query := `SELECT c.id, c.name, COALESCE(c.description, ''), c.type, c.status,
+		COALESCE(c.config::text, '{}'), c.total_tasks, c.completed_tasks, c.failed_tasks,
+		c.created_at, c.updated_at, COALESCE(bc.bot_count, 0)
+		FROM campaigns c
+		LEFT JOIN (SELECT campaign_id, COUNT(*) AS bot_count FROM campaign_bots GROUP BY campaign_id) bc
+			ON bc.campaign_id = c.id`
 	args := []interface{}{}
 
 	if status := c.Query("status"); status != "" {
-		query += " WHERE status = $1"
+		query += " WHERE c.status = $1"
 		args = append(args, status)
 	}
-	query += " ORDER BY created_at DESC"
+	query += " ORDER BY c.created_at DESC"
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
@@ -81,15 +84,12 @@ func (h *CampaignHandler) List(c *fiber.Ctx) error {
 	var camps []fiber.Map
 	for rows.Next() {
 		var id, name, desc, cType, status, config string
-		var totalTasks, completedTasks, failedTasks int
+		var totalTasks, completedTasks, failedTasks, botCount int
 		var createdAt, updatedAt time.Time
 		if err := rows.Scan(&id, &name, &desc, &cType, &status, &config,
-			&totalTasks, &completedTasks, &failedTasks, &createdAt, &updatedAt); err != nil {
+			&totalTasks, &completedTasks, &failedTasks, &createdAt, &updatedAt, &botCount); err != nil {
 			continue
 		}
-
-		var botCount int
-		h.db.QueryRow(`SELECT COUNT(*) FROM campaign_bots WHERE campaign_id = $1`, id).Scan(&botCount)
 
 		camps = append(camps, fiber.Map{
 			"id": id, "name": name, "description": desc, "type": cType,

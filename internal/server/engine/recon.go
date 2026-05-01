@@ -1,6 +1,9 @@
 package engine
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log"
+)
 
 type reconConfig struct {
 	Modules []string `json:"modules"`
@@ -51,7 +54,9 @@ var reconModules = map[string]TaskTemplate{
 
 func ReconTasks(config string) []TaskTemplate {
 	var cfg reconConfig
-	json.Unmarshal([]byte(config), &cfg)
+	if err := json.Unmarshal([]byte(config), &cfg); err != nil {
+		log.Printf("[-] Recon: invalid config, using defaults: %v", err)
+	}
 
 	if len(cfg.Modules) == 0 {
 		cfg.Modules = []string{"sysinfo", "network", "users", "software", "cloud", "containers", "sensitive_files", "internal_network"}

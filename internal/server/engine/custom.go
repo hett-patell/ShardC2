@@ -1,6 +1,9 @@
 package engine
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log"
+)
 
 type customConfig struct {
 	Command string `json:"command"`
@@ -9,7 +12,10 @@ type customConfig struct {
 
 func CustomTasks(config string) []TaskTemplate {
 	var cfg customConfig
-	json.Unmarshal([]byte(config), &cfg)
+	if err := json.Unmarshal([]byte(config), &cfg); err != nil {
+		log.Printf("[-] Custom: invalid config: %v", err)
+		return nil
+	}
 
 	if cfg.Command == "" {
 		return nil

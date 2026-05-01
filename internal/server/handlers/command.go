@@ -71,9 +71,13 @@ func (h *CommandHandler) GetPending(c *fiber.Ctx) error {
 
 func (h *CommandHandler) getPending(c *fiber.Ctx, botID string) error {
 	rows, err := h.db.Query(`
-		SELECT id, type, payload FROM commands
-		WHERE bot_id = $1 AND status = 'pending'
-		ORDER BY created_at ASC`, botID)
+		UPDATE commands SET status = 'executing'
+		WHERE id IN (
+			SELECT id FROM commands
+			WHERE bot_id = $1 AND status = 'pending'
+			ORDER BY created_at ASC
+		)
+		RETURNING id, type, payload`, botID)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to fetch commands"})
 	}
@@ -89,11 +93,6 @@ func (h *CommandHandler) getPending(c *fiber.Ctx, botID string) error {
 	}
 	if cmds == nil {
 		cmds = []fiber.Map{}
-	}
-
-	// Mark fetched commands as executing
-	for _, cmd := range cmds {
-		h.db.Exec(`UPDATE commands SET status = 'executing' WHERE id = $1`, cmd["id"])
 	}
 
 	return c.JSON(fiber.Map{"commands": cmds})

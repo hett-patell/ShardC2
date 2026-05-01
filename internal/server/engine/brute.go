@@ -56,7 +56,10 @@ func populateBruteDefaults(cfg *bruteConfig, db *database.DB) {
 // BruteTasks generates shell commands for bot-based lateral movement brute forcing.
 func BruteTasks(db *database.DB, config string, botIDs []string) ([]TaskTemplate, bool) {
 	var cfg bruteConfig
-	json.Unmarshal([]byte(config), &cfg)
+	if err := json.Unmarshal([]byte(config), &cfg); err != nil {
+		log.Printf("[-] Brute: invalid config: %v", err)
+		return nil, false
+	}
 	populateBruteDefaults(&cfg, db)
 
 	var allTargets []string
@@ -91,7 +94,11 @@ func BruteTasks(db *database.DB, config string, botIDs []string) ([]TaskTemplate
 // Runs in a goroutine, writes results directly to DB and triggers auto-deploy.
 func (e *Engine) RunExternalBrute(campID, config string) {
 	var cfg bruteConfig
-	json.Unmarshal([]byte(config), &cfg)
+	if err := json.Unmarshal([]byte(config), &cfg); err != nil {
+		log.Printf("[-] Campaign %s: invalid external brute config: %v", campID[:8], err)
+		e.db.Exec(`UPDATE campaigns SET status = 'failed', updated_at = NOW() WHERE id = $1`, campID)
+		return
+	}
 	populateBruteDefaults(&cfg, e.db)
 
 	var allTargets []string

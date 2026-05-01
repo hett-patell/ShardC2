@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -15,7 +16,9 @@ type exfilConfig struct {
 
 func ExfilTasks(config string) []TaskTemplate {
 	var cfg exfilConfig
-	json.Unmarshal([]byte(config), &cfg)
+	if err := json.Unmarshal([]byte(config), &cfg); err != nil {
+		log.Printf("[-] Exfil: invalid config, using defaults: %v", err)
+	}
 
 	if len(cfg.Patterns) == 0 && len(cfg.Paths) == 0 {
 		cfg.Patterns = []string{
