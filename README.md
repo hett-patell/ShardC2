@@ -81,8 +81,12 @@ Produces `bin/shardc2-server`, `bin/shardc2-agent`, and `bin/shardc2-brute`.
   --addr :8443 \
   --tls-cert server.crt \
   --tls-key server.key \
+  --implant-key your-implant-key \
+  --jwt-secret your-jwt-secret \
   --migrate
 ```
+
+> **Important:** Set `--implant-key` and `--jwt-secret` explicitly (or via `SHARDC2_IMPLANT_KEY` / `SHARDC2_JWT_SECRET` env vars). If omitted, the server auto-generates random values on each startup — agents will fail to authenticate after a restart and operator JWTs will be invalidated.
 
 The server prints a generated bootstrap token on first run. Use it to create the initial admin operator.
 
@@ -96,7 +100,20 @@ curl -sk -X POST \
   https://localhost:8443/api/v1/operators
 ```
 
-### 6. Access Dashboard
+### 6. Deploy an Agent
+
+```bash
+./bin/shardc2-agent \
+  --server https://your-c2-server:8443 \
+  --implant-key your-implant-key \
+  --interval 30s \
+  --jitter 5s \
+  --insecure-tls-for-lab-only
+```
+
+The `--implant-key` must match the server's key. For production, use `--ca-cert` instead of `--insecure-tls-for-lab-only`. Add `--payload-key` on both server and agent to enable AES-256-GCM payload encryption.
+
+### 7. Access Dashboard
 
 Open `https://localhost:8443/dashboard/` and log in with your admin credentials.
 

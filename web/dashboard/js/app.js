@@ -18,6 +18,11 @@ class API {
       app.logout();
       throw new Error('Authentication failed');
     }
+    if (resp.status === 429) {
+      const retryAfter = parseInt(resp.headers.get('Retry-After') || '3', 10);
+      await new Promise(r => setTimeout(r, retryAfter * 1000));
+      return this.request(method, path, body);
+    }
     return resp;
   }
 
@@ -181,7 +186,11 @@ class App {
     try {
       const msg = JSON.parse(e.data);
       if (msg.type === 'result' && this.currentPage === 'terminal') {
-        this.loadHistory();
+        if (this.multiMode && this.pollMultiBots) {
+          this.loadMultiHistory();
+        } else {
+          this.loadHistory();
+        }
       }
     } catch (err) {}
   }
@@ -509,12 +518,9 @@ class App {
           output.scrollTop = output.scrollHeight;
 
           selectedBots.forEach(id => this.wsSubscribe(id));
-
-          if (!this.wsConnected) {
-            this.pollCount = 0;
-            this.pollMultiBots = selectedBots;
-            setTimeout(() => this.pollMultiResults(), 2000);
-          }
+          this.pollMultiBots = selectedBots;
+          this.pollCount = 0;
+          setTimeout(() => this.pollMultiResults(), 2000);
         } catch (err) {
           this.terminalLines.pop();
           this.terminalLines.push(`<span class="cmd-error">[!] Batch send failed: ${err.message}</span>`);
@@ -536,10 +542,8 @@ class App {
           type: cmdType,
           payload: cmd,
         });
-        if (!this.wsConnected) {
-          this.pollCount = 0;
-          setTimeout(() => this.pollForResult(), 1000);
-        }
+        this.pollCount = 0;
+        setTimeout(() => this.pollForResult(), 1000);
       } catch (err) {
         this.terminalLines.pop();
         this.terminalLines.push(`<span class="cmd-error">[!] Send failed: ${err.message}</span>`);
@@ -567,29 +571,6 @@ class App {
     if (this.currentPage !== 'terminal' || !this.pollMultiBots) return;
     const output = document.getElementById('term-output');
     let allDone = true;
-
-    for (const botId of this.pollMultiBots) {
-      try {
-        const data = await this.api.get(`/commands/history/${botId}`);
-        const cmds = (data.commands || []);
-        const latest = cmds[0];
-        if (latest && (latest.status === 'pending' || latest.status === 'executing')) {
-          allDone = false;
-        }
-      } catch (e) {}
-    }
-
-    this.loadMultiHistory();
-
-    this.pollCount = (this.pollCount || 0) + 1;
-    if (!allDone && this.pollCount < 30) {
-      setTimeout(() => this.pollMultiResults(), 2000);
-    }
-  }
-
-  async loadMultiHistory() {
-    if (!this.pollMultiBots || this.pollMultiBots.length === 0) return;
-    const output = document.getElementById('term-output');
     this.terminalLines = [];
 
     for (const botId of this.pollMultiBots) {
@@ -600,6 +581,7 @@ class App {
         const cmds = (data.commands || []).reverse();
         const latest = cmds[cmds.length - 1];
         if (latest) {
+          if (latest.status === 'pending' || latest.status === 'executing') allDone = false;
           this.terminalLines.push(`\n<span class="cmd-system">[${esc(label)}]</span> <span class="cmd-input">${esc(latest.payload)}</span>`);
           if (latest.output) {
             const cls = latest.status === 'failed' ? 'cmd-error' : 'cmd-output';
@@ -615,6 +597,17 @@ class App {
 
     output.innerHTML = this.terminalLines.join('\n') || '<span class="cmd-system">[*] Awaiting results...</span>';
     output.scrollTop = output.scrollHeight;
+
+    this.pollCount = (this.pollCount || 0) + 1;
+    if (!allDone && this.pollCount < 30) {
+      setTimeout(() => this.pollMultiResults(), 2000);
+    }
+  }
+
+  async loadMultiHistory() {
+    if (!this.pollMultiBots || this.pollMultiBots.length === 0) return;
+    this.pollCount = 0;
+    this.pollMultiResults();
   }
 
   async pollForResult() {
