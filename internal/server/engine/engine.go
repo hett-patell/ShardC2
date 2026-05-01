@@ -11,6 +11,7 @@ import (
 
 	"github.com/shardc2/shardc2/internal/database"
 	"github.com/shardc2/shardc2/pkg/models"
+	"github.com/shardc2/shardc2/pkg/policy"
 )
 
 type TaskTemplate struct {
@@ -26,14 +27,20 @@ type Engine struct {
 	implantKey string
 	campLocks  sync.Map
 	deploySem  chan struct{}
+	policy     policy.Policy
 }
 
 func New(db *database.DB, c2URL, implantKey string) *Engine {
+	return NewWithPolicy(db, c2URL, implantKey, policy.Default())
+}
+
+func NewWithPolicy(db *database.DB, c2URL, implantKey string, p policy.Policy) *Engine {
 	return &Engine{
 		db:         db,
 		c2URL:      c2URL,
 		implantKey: implantKey,
 		deploySem:  make(chan struct{}, 5),
+		policy:     p,
 	}
 }
 
@@ -44,6 +51,9 @@ func (e *Engine) campMu(campID string) *sync.Mutex {
 
 func (e *Engine) Start(ctx context.Context) {
 	log.Printf("[*] Campaign engine started")
+	if err := e.PauseRunningCampaignsOnStartup(ctx); err != nil {
+		log.Printf("[-] Engine: failed to apply startup safety policy: %v", err)
+	}
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -55,6 +65,17 @@ func (e *Engine) Start(ctx context.Context) {
 			e.tick(ctx)
 		}
 	}
+}
+
+func (e *Engine) PauseRunningCampaignsOnStartup(ctx context.Context) error {
+	if e.db == nil || !e.policy.SafeMode {
+		return nil
+	}
+	_, err := e.db.ExecContext(ctx, `
+		UPDATE campaigns
+		SET status = 'paused', updated_at = NOW()
+		WHERE status = 'running'`)
+	return err
 }
 
 func (e *Engine) tick(ctx context.Context) {
@@ -118,6 +139,11 @@ func (e *Engine) generateTasks(ctx context.Context, campID, campType, config str
 			log.Printf("[-] Campaign %s: invalid brute config: %v", campID[:8], err)
 			return
 		}
+		if err := e.validateBrutePolicy(cfg); err != nil {
+			log.Printf("[-] Campaign %s: brute config blocked by policy: %v", campID[:8], err)
+			e.db.Exec(`UPDATE campaigns SET status = 'paused', updated_at = NOW() WHERE id = $1`, campID)
+			return
+		}
 		if cfg.Mode == "external" {
 			go e.RunExternalBrute(campID, config)
 			return
@@ -156,6 +182,18 @@ func (e *Engine) generateTasks(ctx context.Context, campID, campType, config str
 	e.db.Exec(`UPDATE campaigns SET total_tasks = $1, updated_at = NOW() WHERE id = $2`, total, campID)
 
 	log.Printf("[+] Campaign %s: generated %d tasks for %d bots", campID[:8], total, len(botIDs))
+}
+
+func (e *Engine) validateBrutePolicy(cfg bruteConfig) error {
+	if cfg.Mode == "external" && !e.policy.AllowExternalBrute {
+		return fmt.Errorf("external brute campaigns are disabled by policy")
+	}
+	for _, target := range cfg.Targets {
+		if err := e.policy.ValidateTarget(target); err != nil {
+			return fmt.Errorf("target %q rejected by policy: %w", target, err)
+		}
+	}
+	return nil
 }
 
 func (e *Engine) createTask(campID, botID string, task TaskTemplate) {
