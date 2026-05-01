@@ -18,8 +18,12 @@
       <div class="login-divider"></div>
       <div class="login-form">
         <div class="input-wrap">
-          <span class="input-prefix">TOKEN://</span>
-          <input type="password" id="token-input" placeholder="enter operator key" autofocus>
+          <span class="input-prefix">USER://</span>
+          <input type="text" id="login-user" placeholder="username" autofocus>
+        </div>
+        <div class="input-wrap">
+          <span class="input-prefix">PASS://</span>
+          <input type="password" id="login-pass" placeholder="password">
         </div>
         <button id="login-btn" onclick="app.login()">
           <span class="btn-inner">AUTHENTICATE</span>

@@ -45,7 +45,7 @@ class App {
     this.fileBrowserPath = '/';
     this.fileBrowserBotId = null;
 
-    document.getElementById('token-input').addEventListener('keydown', (e) => {
+    document.getElementById('login-pass').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.login();
     });
 
@@ -64,23 +64,28 @@ class App {
   }
 
   async login() {
-    const input = document.getElementById('token-input');
-    const token = input.value.trim();
-    if (!token) return;
+    const user = document.getElementById('login-user').value.trim();
+    const pass = document.getElementById('login-pass').value.trim();
+    if (!user || !pass) return;
 
     const errorEl = document.getElementById('login-error');
     const btn = document.getElementById('login-btn');
     btn.querySelector('.btn-inner').textContent = 'CONNECTING...';
 
     try {
-      const testApi = new API(token);
-      await testApi.get('/stats');
-      this.api = testApi;
-      sessionStorage.setItem('shardc2_token', token);
+      const resp = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.token) throw new Error(data.error || 'login failed');
+      this.api = new API(data.token);
+      sessionStorage.setItem('shardc2_token', data.token);
       errorEl.textContent = '';
       this.showApp();
     } catch (e) {
-      errorEl.textContent = '[ ERROR ] Authentication failed. Invalid token.';
+      errorEl.textContent = `[ ERROR ] ${e.message}`;
       btn.querySelector('.btn-inner').textContent = 'AUTHENTICATE';
     }
   }
@@ -92,7 +97,8 @@ class App {
     clearInterval(this.refreshTimer);
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').style.display = 'flex';
-    document.getElementById('token-input').value = '';
+    document.getElementById('login-user').value = '';
+    document.getElementById('login-pass').value = '';
     document.getElementById('login-btn').querySelector('.btn-inner').textContent = 'AUTHENTICATE';
   }
 
@@ -111,14 +117,20 @@ class App {
       if (!banner) {
         banner = document.createElement('div');
         banner.id = 'safety-banner';
-        const app = document.getElementById('app');
-        app.insertBefore(banner, app.querySelector('.main-content') || app.firstChild);
+        const sidebar = document.getElementById('sidebar');
+        const footer = sidebar.querySelector('.sidebar-footer');
+        sidebar.insertBefore(banner, footer);
       }
-      const blocked = (data.blocked_features || []).join(', ') || 'none';
-      const mode = data.safe_mode ? 'SAFE MODE' : 'UNRESTRICTED';
+      const blocked = (data.blocked_features || []).map(f => f.replace(/_/g, ' ')).join(', ') || 'none';
+      const mode = data.safe_mode ? 'SAFE' : 'LIVE';
       const color = data.safe_mode ? 'var(--green)' : 'var(--red-bright)';
-      banner.style.cssText = `padding:0.4rem 1rem;font-size:0.6rem;letter-spacing:0.1em;border-bottom:1px solid var(--border);display:flex;gap:1.5rem;align-items:center;`;
-      banner.innerHTML = `<span style="color:${color};font-weight:bold">${mode}</span><span style="color:var(--text-muted)">Running: ${data.running_campaigns || 0}</span><span style="color:var(--text-muted)">Blocked: ${blocked}</span>`;
+      banner.style.cssText = `padding:0.6rem 1rem;font-size:0.6rem;letter-spacing:0.08em;border-top:1px solid var(--border);margin-top:auto;`;
+      banner.innerHTML = `
+        <div style="color:${color};font-weight:bold;margin-bottom:0.3rem">${mode} MODE</div>
+        <div style="color:var(--text-muted);line-height:1.5">
+          <div>Campaigns: ${data.running_campaigns || 0}</div>
+          <div>Blocked: ${blocked}</div>
+        </div>`;
     } catch (e) { /* ignore if endpoint unavailable */ }
   }
 

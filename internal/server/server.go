@@ -210,10 +210,11 @@ func (s *Server) setupRoutes() {
 	api.Use("/ws", handlers.WSUpgradeCheck())
 	api.Get("/ws/terminal", func(c *fiber.Ctx) error {
 		token := c.Query("token")
-		if token == "" || token != s.config.OperatorToken {
+		if token == "" {
 			return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
 		}
-		return c.Next()
+		c.Request().Header.Set("Authorization", "Bearer "+token)
+		return middleware.JWTAuth(s.config.JWTSecret)(c)
 	}, websocket.New(handlers.WSHandler(wsHub)))
 
 	// Operator auth & login routes
