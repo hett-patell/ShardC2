@@ -259,6 +259,7 @@ func (s *Server) setupRoutes() {
 	camps.Post("/:id/launch", auditAction("campaign.launch", "campaign"), campHandler.Launch)
 	camps.Get("/:id/progress", campHandler.Progress)
 	camps.Get("/:id/results", campHandler.Results)
+	camps.Post("/:id/replay", auditAction("campaign.replay", "campaign"), campHandler.Replay)
 	camps.Post("/validate", campHandler.Validate)
 
 	exfil := op.Group("/exfil")

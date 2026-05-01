@@ -974,6 +974,7 @@ class App {
             ${c.status === 'created' ? `<button class="btn-accent" style="padding:0.25rem 0.6rem;font-size:0.65rem" onclick="event.stopPropagation();app.launchCampaign('${c.id}')">LAUNCH</button>` : ''}
             ${c.status === 'running' ? `<button class="btn-sm" onclick="event.stopPropagation();app.pauseCampaign('${c.id}')">PAUSE</button>` : ''}
             ${c.status === 'paused' ? `<button class="btn-sm" onclick="event.stopPropagation();app.resumeCampaign('${c.id}')">RESUME</button>` : ''}
+            ${c.status === 'completed' || c.status === 'failed' || c.status === 'paused' ? `<button class="btn-sm" style="color:var(--cyan)" onclick="event.stopPropagation();app.replayCampaign('${c.id}')">REPLAY</button>` : ''}
             <button class="btn-sm btn-danger" onclick="event.stopPropagation();app.deleteCampaign('${c.id}')">DELETE</button>
           </td>
         </tr>`;
@@ -1010,6 +1011,7 @@ class App {
             ${camp.status === 'created' ? `<button class="btn-accent" onclick="app.launchCampaign('${id}')">LAUNCH</button>` : ''}
             ${camp.status === 'running' ? `<button class="btn-sm" onclick="app.pauseCampaign('${id}')">PAUSE</button>` : ''}
             ${camp.status === 'paused' ? `<button class="btn-accent" onclick="app.resumeCampaign('${id}')">RESUME</button>` : ''}
+            ${camp.status === 'completed' || camp.status === 'failed' || camp.status === 'paused' ? `<button class="btn-accent" onclick="app.replayCampaign('${id}')">REPLAY</button>` : ''}
             <button class="btn-sm" onclick="app.activeCampaignId=null;app.navigate('campaigns')">BACK</button>
           </div>
         </div>
@@ -1172,6 +1174,18 @@ class App {
       this.refreshCampaigns();
     }
   }
+  async replayCampaign(id) {
+    const autoStart = confirm('Replay this campaign?\n\nOK = Create & Launch immediately\nCancel = Just create (edit before launching)');
+    const result = await this.api.post(`/campaigns/${id}/replay`, { auto_start: autoStart });
+    if (result.error) {
+      alert(result.error);
+      return;
+    }
+    this.activeCampaignId = result.id;
+    clearInterval(this.refreshTimer);
+    await this.renderCampaignDetail(result.id);
+  }
+
   // ===== FILE BROWSER =====
   async renderFileBrowser() {
     const c = document.getElementById('content');

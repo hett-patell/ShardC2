@@ -416,6 +416,67 @@ func (h *CampaignHandler) Results(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"tasks": tasks, "count": len(tasks)})
 }
 
+func (h *CampaignHandler) Replay(c *fiber.Ctx) error {
+	srcID := c.Params("id")
+
+	var name, desc, cType, config string
+	err := h.db.QueryRow(`
+		SELECT name, COALESCE(description, ''), type, COALESCE(config::text, '{}')
+		FROM campaigns WHERE id = $1`, srcID).Scan(&name, &desc, &cType, &config)
+	if err == sql.ErrNoRows {
+		return c.Status(404).JSON(fiber.Map{"error": "campaign not found"})
+	}
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to read campaign"})
+	}
+
+	if err := ValidateCampaignConfig(h.policy, cType, config); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var req struct {
+		Name      string `json:"name"`
+		AutoStart bool   `json:"auto_start"`
+	}
+	c.BodyParser(&req)
+	newName := req.Name
+	if newName == "" {
+		newName = name + " (replay)"
+	}
+
+	var newID string
+	err = h.db.QueryRow(`
+		INSERT INTO campaigns (name, description, type, status, config)
+		VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		newName, desc, cType, models.CampaignStatusCreated, config,
+	).Scan(&newID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to create replay campaign"})
+	}
+
+	result, err := h.db.Exec(`
+		INSERT INTO campaign_bots (campaign_id, bot_id)
+		SELECT $1, bot_id FROM campaign_bots WHERE campaign_id = $2`, newID, srcID)
+	var botCount int64
+	if err == nil {
+		botCount, _ = result.RowsAffected()
+	}
+
+	if req.AutoStart && botCount > 0 {
+		h.db.Exec(`UPDATE campaigns SET status = $1, updated_at = NOW() WHERE id = $2`,
+			models.CampaignStatusRunning, newID)
+		return c.Status(201).JSON(fiber.Map{
+			"id": newID, "status": models.CampaignStatusRunning,
+			"bot_count": botCount, "source_id": srcID,
+		})
+	}
+
+	return c.Status(201).JSON(fiber.Map{
+		"id": newID, "status": models.CampaignStatusCreated,
+		"bot_count": botCount, "source_id": srcID,
+	})
+}
+
 type DryRunResult struct {
 	TotalTargets   int      `json:"total_targets"`
 	BlockedTargets int      `json:"blocked_targets"`
