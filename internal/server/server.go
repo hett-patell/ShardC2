@@ -27,6 +27,7 @@ import (
 	"github.com/shardc2/shardc2/internal/server/engine"
 	"github.com/shardc2/shardc2/internal/server/handlers"
 	"github.com/shardc2/shardc2/internal/server/middleware"
+	"github.com/shardc2/shardc2/internal/server/report"
 	"github.com/shardc2/shardc2/pkg/policy"
 	"github.com/shardc2/shardc2/pkg/profiles"
 )
@@ -265,6 +266,20 @@ func (s *Server) setupRoutes() {
 	exfil.Delete("/:id", auditAction("exfil.delete", "exfil"), exfilHandler.Delete)
 
 	op.Get("/stats", botHandler.Stats)
+
+	statusHandler := handlers.NewStatusHandler(s.db, s.config.Policy)
+	op.Get("/safety/status", statusHandler.SafetyStatus)
+
+	camps.Get("/:id/report.md", func(c *fiber.Ctx) error {
+		campID := c.Params("id")
+		md, err := report.GenerateCampaignReport(s.db, campID)
+		if err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": err.Error()})
+		}
+		c.Set("Content-Type", "text/markdown; charset=utf-8")
+		c.Set("Content-Disposition", "attachment; filename=campaign-report.md")
+		return c.SendString(md)
+	})
 
 	pluginHandler := handlers.NewPluginHandler("plugins")
 	op.Get("/plugins", pluginHandler.List)
