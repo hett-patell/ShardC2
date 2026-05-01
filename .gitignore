@@ -10,3 +10,10 @@ vendor/
 /server
 /agent
 /bruteforcer
+server.crt
+server.key
+claude-shard
+web/dashboard/wordlists/
+wordlists/
+*.sqlite
+*.db
