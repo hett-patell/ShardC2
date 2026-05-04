@@ -292,6 +292,27 @@ func (s *Server) setupRoutes() {
 		return c.SendString(md)
 	})
 
+	camps.Get("/:id/report.json", func(c *fiber.Ctx) error {
+		campID := c.Params("id")
+		data, err := report.GenerateJSONReport(s.db, campID)
+		if err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": err.Error()})
+		}
+		c.Set("Content-Type", "application/json; charset=utf-8")
+		c.Set("Content-Disposition", "attachment; filename=campaign-report.json")
+		return c.Send(data)
+	})
+
+	camps.Get("/:id/report.html", func(c *fiber.Ctx) error {
+		campID := c.Params("id")
+		htmlDoc, err := report.GenerateHTMLReport(s.db, campID)
+		if err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": err.Error()})
+		}
+		c.Set("Content-Type", "text/html; charset=utf-8")
+		return c.SendString(htmlDoc)
+	})
+
 	pluginHandler := handlers.NewPluginHandler("plugins")
 	op.Get("/plugins", pluginHandler.List)
 

