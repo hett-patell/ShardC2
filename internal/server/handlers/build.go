@@ -90,6 +90,56 @@ func (h *BuildHandler) Get(c *fiber.Ctx) error {
 	return c.JSON(b)
 }
 
+func (h *BuildHandler) CreateStager(c *fiber.Ctx) error {
+	var req builds.StagerRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
+	}
+	if err := req.Validate(); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var stageStatus string
+	err := h.db.QueryRow("SELECT status FROM agent_builds WHERE id = $1", req.StageID).Scan(&stageStatus)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "stage build not found"})
+	}
+	if stageStatus != models.BuildStatusCompleted {
+		return c.Status(400).JSON(fiber.Map{"error": "stage build not completed yet"})
+	}
+
+	var buildID string
+	err = h.db.QueryRow(`
+		INSERT INTO agent_builds (goos, goarch, profile, requested_by, status)
+		VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		req.GOOS, req.GOARCH, "stager", nil, models.BuildStatusBuilding,
+	).Scan(&buildID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to create build record"})
+	}
+
+	lb, ok := h.builder.(*builds.LocalBuilder)
+	if !ok {
+		return c.Status(500).JSON(fiber.Map{"error": "stager builds require local builder"})
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		artifact, buildErr := lb.BuildStager(ctx, req)
+		if buildErr != nil {
+			h.db.Exec(`UPDATE agent_builds SET status = $1, error_message = $2, completed_at = NOW() WHERE id = $3`,
+				models.BuildStatusFailed, artifact.Error, buildID)
+			return
+		}
+		h.db.Exec(`UPDATE agent_builds SET status = $1, artifact_path = $2, completed_at = NOW() WHERE id = $3`,
+			models.BuildStatusCompleted, artifact.Path, buildID)
+	}()
+
+	return c.Status(202).JSON(fiber.Map{"id": buildID, "status": models.BuildStatusBuilding})
+}
+
 func (h *BuildHandler) Download(c *fiber.Ctx) error {
 	id := c.Params("id")
 

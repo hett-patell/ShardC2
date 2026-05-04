@@ -147,6 +147,7 @@ func main() {
 		Profile:        profile,
 		JWTSecret:      jwtSecretBytes,
 		Policy:         safetyPolicy,
+		PolicyPath:     *policyFile,
 		BootstrapToken: *bootstrapToken,
 	}
 	srv := server.New(db, cfg)

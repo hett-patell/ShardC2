@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShardC2 // OPERATOR</title>
-  <link rel="stylesheet" href="css/style.css?v=12">
+  <link rel="stylesheet" href="css/style.css?v=16">
 </head>
 <body>
 
@@ -14,28 +14,74 @@
     <div class="login-glow"></div>
     <div class="login-glow"></div>
     <div class="login-glow"></div>
+    <canvas id="login-grid" class="login-grid-canvas"></canvas>
     <div class="scanlines"></div>
-    <div class="login-box">
-      <div class="login-logo-wrap">
-        <div class="glitch-logo" data-text="SHARDC2">SHARDC2</div>
-        <div class="login-tagline">COMMAND &amp; CONTROL</div>
-      </div>
-      <div class="login-divider"></div>
-      <div class="login-form">
-        <div class="input-wrap">
-          <span class="input-prefix">USER://</span>
-          <input type="text" id="login-user" placeholder="username" autofocus>
+
+    <div class="login-left">
+      <div class="login-brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M24 4L42 14V34L24 44L6 34V14L24 4Z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+            <path d="M24 4L42 14L24 24L6 14L24 4Z" fill="currentColor" opacity="0.15"/>
+            <path d="M24 24V44" stroke="currentColor" stroke-width="1" opacity="0.4"/>
+            <path d="M6 14L24 24L42 14" stroke="currentColor" stroke-width="1" opacity="0.4"/>
+            <circle cx="24" cy="24" r="4" fill="currentColor" opacity="0.8"/>
+            <circle cx="24" cy="24" r="8" stroke="currentColor" stroke-width="0.5" opacity="0.3"/>
+          </svg>
         </div>
-        <div class="input-wrap">
-          <span class="input-prefix">PASS://</span>
-          <input type="password" id="login-pass" placeholder="password">
-        </div>
-        <button id="login-btn" onclick="app.login()">
-          <span class="btn-inner">AUTHENTICATE</span>
-        </button>
+        <h1 class="brand-title">SHARD<span class="brand-accent">C2</span></h1>
+        <p class="brand-subtitle">COMMAND &amp; CONTROL FRAMEWORK</p>
+        <div class="brand-divider"></div>
+        <p class="brand-desc">Distributed implant management, credential harvesting, and campaign orchestration platform.</p>
       </div>
-      <p id="login-error" class="error-msg"></p>
-      <div class="login-footer">AUTHORIZED PERSONNEL ONLY</div>
+      <div class="login-left-footer">
+        <span class="login-status-dot"></span>
+        <span>SYSTEM ONLINE</span>
+        <span class="login-separator">|</span>
+        <span>v1.0.0</span>
+      </div>
+    </div>
+
+    <div class="login-right">
+      <div class="login-box">
+        <div class="login-box-header">
+          <span class="login-box-tag">SECURE ACCESS</span>
+          <h2 class="login-box-title">Authenticate</h2>
+          <p class="login-box-sub">Enter your operator credentials to access the control panel.</p>
+        </div>
+
+        <div class="login-form">
+          <div class="input-group">
+            <label class="input-label" for="login-user">USERNAME</label>
+            <div class="input-wrap">
+              <span class="input-icon">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zM2 14c0-2.21 2.69-4 6-4s6 1.79 6 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+              </span>
+              <input type="text" id="login-user" placeholder="operator" autofocus>
+            </div>
+          </div>
+          <div class="input-group">
+            <label class="input-label" for="login-pass">PASSWORD</label>
+            <div class="input-wrap">
+              <span class="input-icon">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M5 7V5a3 3 0 116 0v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+              </span>
+              <input type="password" id="login-pass" placeholder="••••••••">
+            </div>
+          </div>
+          <button id="login-btn" onclick="app.login()">
+            <span class="btn-inner">ACCESS SYSTEM</span>
+            <span class="btn-arrow">&#8594;</span>
+          </button>
+        </div>
+
+        <p id="login-error" class="error-msg"></p>
+
+        <div class="login-footer">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1l7 4v6l-7 4-7-4V5l7-4z" stroke="currentColor" stroke-width="1.2"/></svg>
+          <span>AUTHORIZED PERSONNEL ONLY</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -97,6 +143,6 @@
   </div>
 
   <div id="toast-container" class="toast-container"></div>
-  <script src="js/app.js?v=10"></script>
+  <script src="js/app.js?v=12"></script>
 </body>
 </html>

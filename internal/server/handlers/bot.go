@@ -110,11 +110,12 @@ func (h *BotHandler) AgentBeacon(c *fiber.Ctx) error {
 
 func (h *BotHandler) List(c *fiber.Ctx) error {
 	rows, err := h.db.Query(`
-		SELECT id, hostname, ip_address, COALESCE(external_ip, ''), os, architecture,
-		       COALESCE(username, ''), privileged, last_seen,
-		       CASE WHEN last_seen > NOW() - INTERVAL '5 minutes' THEN 'active' ELSE 'dead' END,
-		       beacon_interval, created_at
-		FROM bots ORDER BY last_seen DESC`)
+		SELECT b.id, b.hostname, b.ip_address, COALESCE(b.external_ip, ''), b.os, b.architecture,
+		       COALESCE(b.username, ''), b.privileged, b.last_seen,
+		       CASE WHEN b.last_seen > NOW() - INTERVAL '5 minutes' THEN 'active' ELSE 'dead' END,
+		       b.beacon_interval, b.created_at,
+		       COALESCE((SELECT string_agg(bt.tag, ',' ORDER BY bt.tag) FROM bot_tags bt WHERE bt.bot_id = b.id), '')
+		FROM bots b ORDER BY b.last_seen DESC`)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to list bots"})
 	}
@@ -122,17 +123,18 @@ func (h *BotHandler) List(c *fiber.Ctx) error {
 
 	var bots []fiber.Map
 	for rows.Next() {
-		var id, hostname, ip, extIP, osName, arch, username, status string
+		var id, hostname, ip, extIP, osName, arch, username, status, tags string
 		var privileged bool
 		var lastSeen, createdAt time.Time
 		var beaconInterval int
-		if err := rows.Scan(&id, &hostname, &ip, &extIP, &osName, &arch, &username, &privileged, &lastSeen, &status, &beaconInterval, &createdAt); err != nil {
+		if err := rows.Scan(&id, &hostname, &ip, &extIP, &osName, &arch, &username, &privileged, &lastSeen, &status, &beaconInterval, &createdAt, &tags); err != nil {
 			continue
 		}
 		bots = append(bots, fiber.Map{
 			"id": id, "hostname": hostname, "ip_address": ip, "external_ip": extIP,
 			"os": osName, "architecture": arch, "username": username, "privileged": privileged,
 			"last_seen": lastSeen, "status": status, "beacon_interval": beaconInterval, "created_at": createdAt,
+			"tags": tags,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -224,6 +226,57 @@ func (h *BotHandler) Stats(c *fiber.Ctx) error {
 		"active_campaigns":  activeCampaigns,
 		"total_campaigns":   totalCampaigns,
 	})
+}
+
+func (h *BotHandler) SetTags(c *fiber.Ctx) error {
+	botID := c.Params("id")
+	var req struct {
+		Tags []string `json:"tags"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
+	}
+	for _, tag := range req.Tags {
+		if len(tag) == 0 || len(tag) > 100 {
+			return c.Status(400).JSON(fiber.Map{"error": "tags must be 1-100 characters"})
+		}
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "transaction failed"})
+	}
+	defer tx.Rollback()
+
+	tx.Exec("DELETE FROM bot_tags WHERE bot_id = $1", botID)
+	for _, tag := range req.Tags {
+		tx.Exec("INSERT INTO bot_tags (bot_id, tag) VALUES ($1, $2) ON CONFLICT DO NOTHING", botID, tag)
+	}
+	if err := tx.Commit(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to save tags"})
+	}
+	return c.JSON(fiber.Map{"status": "updated", "tags": req.Tags})
+}
+
+func (h *BotHandler) ListAllTags(c *fiber.Ctx) error {
+	rows, err := h.db.Query("SELECT DISTINCT tag FROM bot_tags ORDER BY tag")
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to list tags"})
+	}
+	defer rows.Close()
+
+	var tags []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			continue
+		}
+		tags = append(tags, tag)
+	}
+	if tags == nil {
+		tags = []string{}
+	}
+	return c.JSON(fiber.Map{"tags": tags})
 }
 
 func botFingerprint(hostname, _, osName, arch, username string) string {
