@@ -226,7 +226,13 @@ func (s *Server) setupRoutes() {
 	api.Post("/auth/login", limiter.New(limiter.Config{Max: loginLimitMax, Expiration: loginLimitWindow}), opHandler.Login)
 
 	op := api.Group("", auditedOpAuth)
-	op.Use(limiter.New(limiter.Config{Max: 600, Expiration: time.Minute}))
+	op.Use(limiter.New(limiter.Config{
+		Max:        3000,
+		Expiration: time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.IP() + ":" + c.Get("Authorization")
+		},
+	}))
 
 	writeGuard := func(c *fiber.Ctx) error {
 		role, _ := c.Locals("operator_role").(string)
