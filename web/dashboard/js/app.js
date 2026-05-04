@@ -45,6 +45,7 @@ class App {
     this.activeCampaignId = null;
     this.campaignTab = 'overview';
     this.ws = null;
+    this.wordlistData = {};
     this.wsConnected = false;
     this.multiMode = false;
     this.fileBrowserPath = '/';
@@ -878,20 +879,32 @@ class App {
             </div>
           </div>
           <div class="form-group">
-            <label>Targets (CIDRs/IPs/hostnames, comma-separated)</label>
-            <input type="text" id="brute-targets" placeholder="e.g. 10.0.0.0/24, 203.0.113.50, target.example.com">
+            <label>Targets <span style="color:var(--text-muted);font-size:0.65rem">comma-separated or upload wordlist</span></label>
+            <input type="text" id="brute-targets" placeholder="e.g. 10.0.0.0/24, 203.0.113.50">
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.3rem">
+              <label class="btn-sm" style="cursor:pointer"><input type="file" id="brute-targets-file" accept=".txt,.csv,.lst" style="display:none" onchange="app.loadWordlist(this,'brute-targets')"> LOAD FILE</label>
+              <span id="brute-targets-count" style="color:var(--text-muted);font-size:0.65rem"></span>
+            </div>
           </div>
           <div class="form-group">
-            <label>Ports (comma-separated)</label>
+            <label>Ports <span style="color:var(--text-muted);font-size:0.65rem">comma-separated</span></label>
             <input type="text" id="brute-ports" placeholder="22" value="22">
           </div>
           <div class="form-group">
-            <label>Usernames (comma-separated)</label>
+            <label>Usernames <span style="color:var(--text-muted);font-size:0.65rem">comma-separated or upload wordlist</span></label>
             <input type="text" id="brute-users" placeholder="root, admin, ubuntu" value="root, admin, ubuntu, ec2-user">
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.3rem">
+              <label class="btn-sm" style="cursor:pointer"><input type="file" id="brute-users-file" accept=".txt,.csv,.lst" style="display:none" onchange="app.loadWordlist(this,'brute-users')"> LOAD FILE</label>
+              <span id="brute-users-count" style="color:var(--text-muted);font-size:0.65rem"></span>
+            </div>
           </div>
           <div class="form-group">
-            <label>Passwords (comma-separated)</label>
+            <label>Passwords <span style="color:var(--text-muted);font-size:0.65rem">comma-separated or upload wordlist</span></label>
             <input type="text" id="brute-passes" placeholder="Enter passwords for authorized lab testing">
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.3rem">
+              <label class="btn-sm" style="cursor:pointer"><input type="file" id="brute-passes-file" accept=".txt,.csv,.lst" style="display:none" onchange="app.loadWordlist(this,'brute-passes')"> LOAD FILE</label>
+              <span id="brute-passes-count" style="color:var(--text-muted);font-size:0.65rem"></span>
+            </div>
           </div>
           <div class="form-group">
             <label>Workers (concurrent threads)</label>
@@ -944,6 +957,22 @@ class App {
     el.innerHTML = configs[type] || '';
   }
 
+  loadWordlist(input, targetId) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const lines = e.target.result.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+      const unique = [...new Set(lines)];
+      this.wordlistData[targetId] = unique;
+      const countEl = document.getElementById(targetId + '-count');
+      if (countEl) countEl.textContent = `${unique.length} entries loaded from ${file.name}`;
+      const field = document.getElementById(targetId);
+      if (field && !field.value) field.placeholder = `${unique.length} from wordlist`;
+    };
+    reader.readAsText(file);
+  }
+
   buildCampaignConfig() {
     const type = document.getElementById('camp-type').value;
 
@@ -956,10 +985,15 @@ class App {
       case 'brute': {
         const modeEl = document.querySelector('[data-mode].selected');
         const mode = modeEl ? modeEl.dataset.mode : 'lateral';
-        const targets = (document.getElementById('brute-targets')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+        const merge = (id) => {
+          const text = (document.getElementById(id)?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+          const wl = this.wordlistData[id] || [];
+          return [...new Set([...text, ...wl])];
+        };
+        const targets = merge('brute-targets');
         const ports = (document.getElementById('brute-ports')?.value || '22').split(',').map(s => parseInt(s.trim())).filter(Boolean);
-        const usernames = (document.getElementById('brute-users')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
-        const passwords = (document.getElementById('brute-passes')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+        const usernames = merge('brute-users');
+        const passwords = merge('brute-passes');
         const use_db_creds = document.getElementById('brute-dbcreds')?.checked || false;
         const workers = parseInt(document.getElementById('brute-workers')?.value) || 10;
         return JSON.stringify({ mode, targets, ports, usernames, passwords, use_db_creds, workers });
