@@ -286,6 +286,9 @@ func (s *Server) setupRoutes() {
 	op.Get("/safety/status", statusHandler.SafetyStatus)
 	op.Get("/system/info", statusHandler.SystemInfo)
 	op.Get("/audit/events", statusHandler.AuditEvents)
+	op.Get("/system/db-stats", statusHandler.DatabaseStats)
+	op.Post("/system/cleanup/dead-bots", writeGuard, auditAction("system.cleanup_bots", "system"), statusHandler.CleanupDeadBots)
+	op.Post("/system/cleanup/stale-commands", writeGuard, auditAction("system.cleanup_commands", "system"), statusHandler.CleanupStaleCommands)
 
 	camps.Get("/:id/report.md", func(c *fiber.Ctx) error {
 		campID := c.Params("id")
@@ -327,6 +330,8 @@ func (s *Server) setupRoutes() {
 	blds.Post("/", auditAction("build.create", "build"), buildHandler.Create)
 	blds.Get("/:id", buildHandler.Get)
 	blds.Get("/:id/download", auditAction("build.download", "build"), buildHandler.Download)
+
+	op.Put("/auth/password", auditAction("operator.change_password", "operator"), opHandler.ChangePassword)
 
 	// Admin-only operator management
 	opAdmin := op.Group("/operators", func(c *fiber.Ctx) error {

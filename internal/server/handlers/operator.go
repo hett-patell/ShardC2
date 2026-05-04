@@ -144,6 +144,46 @@ func (h *OperatorHandler) List(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"operators": ops})
 }
 
+func (h *OperatorHandler) ChangePassword(c *fiber.Ctx) error {
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid request"})
+	}
+	if len(req.NewPassword) < 8 {
+		return c.Status(400).JSON(fiber.Map{"error": "new password must be at least 8 characters"})
+	}
+
+	operatorID, _ := c.Locals("operator_id").(string)
+	if operatorID == "" {
+		return c.Status(401).JSON(fiber.Map{"error": "not authenticated"})
+	}
+
+	var currentHash string
+	err := h.db.QueryRow(`SELECT password_hash FROM operators WHERE id = $1 AND active = true`, operatorID).Scan(&currentHash)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "operator not found"})
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(req.CurrentPassword)); err != nil {
+		return c.Status(401).JSON(fiber.Map{"error": "current password is incorrect"})
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to hash password"})
+	}
+
+	_, err = h.db.Exec(`UPDATE operators SET password_hash = $1 WHERE id = $2`, string(newHash), operatorID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to update password"})
+	}
+
+	return c.JSON(fiber.Map{"status": "password changed"})
+}
+
 func (h *OperatorHandler) Deactivate(c *fiber.Ctx) error {
 	id := c.Params("id")
 	result, err := h.db.Exec(`UPDATE operators SET active = false WHERE id = $1`, id)

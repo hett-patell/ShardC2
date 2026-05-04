@@ -303,25 +303,19 @@ class App {
         <div class="stat-card"><div class="skeleton" style="height:1rem;width:80px;margin-bottom:0.5rem"></div><div class="skeleton" style="height:2rem;width:50px"></div></div>
         <div class="stat-card"><div class="skeleton" style="height:1rem;width:80px;margin-bottom:0.5rem"></div><div class="skeleton" style="height:2rem;width:50px"></div></div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem">
-        <div>
-          <div class="section-header">
-            <span class="section-title">ACTIVITY FEED</span>
-            <span class="refresh-hint">LIVE</span>
-          </div>
-          <div id="activity-feed" class="activity-feed" style="background:var(--bg-card);border:1px solid var(--border);padding:0.8rem;min-height:200px">
-            <div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-xl"></div><div class="skeleton-cell w-md"></div></div>
-            <div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-xl"></div><div class="skeleton-cell w-md"></div></div>
-            <div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-xl"></div><div class="skeleton-cell w-md"></div></div>
-          </div>
-        </div>
-        <div>
-          <div class="section-header">
-            <span class="section-title">ACTIVE IMPLANTS</span>
-            <span class="refresh-hint">AUTO-REFRESH // 10s</span>
-          </div>
-          <div id="dash-bots"></div>
-        </div>
+      <div class="section-header">
+        <span class="section-title">ACTIVE IMPLANTS</span>
+        <span class="refresh-hint">AUTO-REFRESH // 10s</span>
+      </div>
+      <div id="dash-bots" style="margin-bottom:1.2rem"></div>
+      <div class="section-header">
+        <span class="section-title">ACTIVITY FEED</span>
+        <span class="refresh-hint">LIVE</span>
+      </div>
+      <div id="activity-feed" class="activity-feed" style="background:var(--bg-card);border:1px solid var(--border);padding:0.8rem">
+        <div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-xl"></div><div class="skeleton-cell w-md"></div></div>
+        <div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-xl"></div><div class="skeleton-cell w-md"></div></div>
+        <div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-xl"></div><div class="skeleton-cell w-md"></div></div>
       </div>`;
     await this.refreshDashboard();
     this.loadActivityFeed();
@@ -1479,13 +1473,20 @@ class App {
       <div class="tab-bar">
         <button class="tab-btn ${this.settingsTab === 'system' ? 'active' : ''}" onclick="app.settingsTab='system';app.renderSettings()">SYSTEM</button>
         <button class="tab-btn ${this.settingsTab === 'operators' ? 'active' : ''}" onclick="app.settingsTab='operators';app.renderSettings()">OPERATORS</button>
+        <button class="tab-btn ${this.settingsTab === 'database' ? 'active' : ''}" onclick="app.settingsTab='database';app.renderSettings()">DATABASE</button>
+        <button class="tab-btn ${this.settingsTab === 'builder' ? 'active' : ''}" onclick="app.settingsTab='builder';app.renderSettings()">BUILDER</button>
+        <button class="tab-btn ${this.settingsTab === 'account' ? 'active' : ''}" onclick="app.settingsTab='account';app.renderSettings()">ACCOUNT</button>
         <button class="tab-btn ${this.settingsTab === 'audit' ? 'active' : ''}" onclick="app.settingsTab='audit';app.renderSettings()">AUDIT LOG</button>
       </div>
       <div id="settings-content"></div>`;
 
-    if (this.settingsTab === 'system') await this.renderSystemInfo();
-    else if (this.settingsTab === 'operators') await this.renderOperatorsTab();
-    else if (this.settingsTab === 'audit') await this.renderAuditLog();
+    const tab = this.settingsTab;
+    if (tab === 'system') await this.renderSystemInfo();
+    else if (tab === 'operators') await this.renderOperatorsTab();
+    else if (tab === 'database') await this.renderDatabaseTab();
+    else if (tab === 'builder') await this.renderBuilderTab();
+    else if (tab === 'account') await this.renderAccountTab();
+    else if (tab === 'audit') await this.renderAuditLog();
   }
 
   async renderSystemInfo() {
@@ -1626,6 +1627,268 @@ class App {
         }).join('')}</tbody></table></div>`;
     } catch (e) {
       el.innerHTML = `<div class="empty-state"><p>Failed to load audit log: ${esc(e.message)}</p></div>`;
+    }
+  }
+
+  async renderDatabaseTab() {
+    const el = document.getElementById('settings-content');
+    el.innerHTML = '<div class="empty-state"><p>LOADING DATABASE STATS...</p></div>';
+    try {
+      const data = await this.api.get('/system/db-stats');
+      const tables = data.tables || [];
+      const totalRows = tables.reduce((s, t) => s + t.rows, 0);
+      el.innerHTML = `
+        <div class="camp-detail" style="margin-top:0.5rem">
+          <div style="margin-bottom:0.8rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">DATABASE OVERVIEW</div>
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">Database Size</div><div class="stat-value cyan">${esc(data.database_size || '?')}</div></div>
+            <div class="stat-card"><div class="stat-label">Total Rows</div><div class="stat-value green">${totalRows.toLocaleString()}</div></div>
+            <div class="stat-card"><div class="stat-label">Dead Bots (7d+)</div><div class="stat-value red">${data.dead_bots || 0}</div></div>
+            <div class="stat-card"><div class="stat-label">Stale Commands</div><div class="stat-value yellow">${data.stale_commands || 0}</div></div>
+          </div>
+        </div>
+        <div class="camp-detail">
+          <div style="margin-bottom:0.8rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">TABLE SIZES</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Table</th><th>Rows</th><th>Distribution</th></tr></thead>
+            <tbody>${tables.map(t => {
+              const pct = totalRows > 0 ? Math.round(t.rows / totalRows * 100) : 0;
+              return `<tr>
+                <td style="color:var(--text-bright);font-weight:600">${esc(t.name)}</td>
+                <td style="color:var(--cyan)">${t.rows.toLocaleString()}</td>
+                <td><div style="display:flex;align-items:center;gap:0.5rem">
+                  <div style="flex:1;background:var(--bg-input);height:6px;border:1px solid var(--border);max-width:200px">
+                    <div style="height:100%;width:${pct}%;background:var(--cyan);transition:width 0.3s"></div>
+                  </div>
+                  <span style="font-size:0.65rem;color:var(--text-muted)">${pct}%</span>
+                </div></td>
+              </tr>`;
+            }).join('')}</tbody></table></div>
+        </div>
+        <div class="camp-detail">
+          <div style="margin-bottom:0.8rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">MAINTENANCE</div>
+          <div style="display:flex;gap:0.8rem;flex-wrap:wrap">
+            <div style="flex:1;min-width:250px;padding:1rem;background:var(--bg-secondary);border:1px solid var(--border)">
+              <div style="color:var(--text-bright);font-size:0.75rem;margin-bottom:0.4rem">PURGE DEAD IMPLANTS</div>
+              <div style="color:var(--text-muted);font-size:0.65rem;margin-bottom:0.8rem">Remove bots that haven't beaconed in 7+ days. Currently: <span style="color:var(--red)">${data.dead_bots}</span> dead.</div>
+              <button class="btn-sm btn-danger" onclick="app.cleanupDeadBots()" ${data.dead_bots === 0 ? 'disabled' : ''}>PURGE ${data.dead_bots} DEAD BOTS</button>
+            </div>
+            <div style="flex:1;min-width:250px;padding:1rem;background:var(--bg-secondary);border:1px solid var(--border)">
+              <div style="color:var(--text-bright);font-size:0.75rem;margin-bottom:0.4rem">CLEAN STALE COMMANDS</div>
+              <div style="color:var(--text-muted);font-size:0.65rem;margin-bottom:0.8rem">Mark pending/executing commands older than 1 hour as failed. Currently: <span style="color:var(--yellow)">${data.stale_commands}</span> stale.</div>
+              <button class="btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="app.cleanupStaleCommands()" ${data.stale_commands === 0 ? 'disabled' : ''}>CLEAN ${data.stale_commands} STALE CMDS</button>
+            </div>
+          </div>
+        </div>`;
+    } catch (e) {
+      el.innerHTML = `<div class="empty-state"><p>Failed to load database stats: ${esc(e.message)}</p></div>`;
+    }
+  }
+
+  async cleanupDeadBots() {
+    if (!confirm('Permanently delete all bots inactive for 7+ days?')) return;
+    try {
+      const result = await this.api.post('/system/cleanup/dead-bots');
+      this.showToast(`Purged ${result.deleted} dead bots`, 'success');
+      this.renderDatabaseTab();
+    } catch (e) {
+      this.showToast('Cleanup failed: ' + e.message, 'error');
+    }
+  }
+
+  async cleanupStaleCommands() {
+    try {
+      const result = await this.api.post('/system/cleanup/stale-commands');
+      this.showToast(`Cleaned ${result.cleaned} stale commands`, 'success');
+      this.renderDatabaseTab();
+    } catch (e) {
+      this.showToast('Cleanup failed: ' + e.message, 'error');
+    }
+  }
+
+  async renderBuilderTab() {
+    const el = document.getElementById('settings-content');
+    el.innerHTML = `
+      <div class="camp-detail" style="margin-top:0.5rem">
+        <div style="margin-bottom:1rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">BUILD AGENT BINARY</div>
+        <div class="config-grid">
+          <div class="form-group">
+            <label>Target OS</label>
+            <select id="build-goos">
+              <option value="linux">LINUX</option>
+              <option value="darwin">MACOS</option>
+              <option value="windows">WINDOWS</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Architecture</label>
+            <select id="build-goarch">
+              <option value="amd64">AMD64</option>
+              <option value="arm64">ARM64</option>
+              <option value="arm">ARM</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>C2 Profile</label>
+            <select id="build-profile">
+              <option value="default">DEFAULT</option>
+              <option value="cloudfront">CLOUDFRONT</option>
+              <option value="wordpress">WORDPRESS</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:1rem;display:flex;gap:0.5rem;align-items:center">
+          <button class="btn-accent" onclick="app.buildAgent()" id="build-btn">BUILD AGENT</button>
+          <span id="build-status" style="font-size:0.7rem;color:var(--text-muted)"></span>
+        </div>
+      </div>
+      <div class="section-header" style="margin-top:1rem">
+        <span class="section-title">BUILD PRESETS</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0.8rem;margin-bottom:1rem" id="build-presets">
+        ${[
+          { os: 'linux', arch: 'amd64', label: 'Linux x86_64', icon: 'LNX' },
+          { os: 'linux', arch: 'arm64', label: 'Linux ARM64', icon: 'LNX' },
+          { os: 'linux', arch: 'arm', label: 'Linux ARM', icon: 'LNX' },
+          { os: 'darwin', arch: 'amd64', label: 'macOS Intel', icon: 'MAC' },
+          { os: 'darwin', arch: 'arm64', label: 'macOS Apple Silicon', icon: 'MAC' },
+          { os: 'windows', arch: 'amd64', label: 'Windows x86_64', icon: 'WIN' },
+        ].map(p => `
+          <div class="stat-card" style="cursor:pointer;padding:0.8rem" onclick="document.getElementById('build-goos').value='${p.os}';document.getElementById('build-goarch').value='${p.arch}';app.showToast('Preset: ${p.label}','info')">
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
+              <span class="os-tag">${p.icon}</span>
+              <span style="color:var(--text-bright);font-size:0.75rem">${p.label}</span>
+            </div>
+            <div style="color:var(--text-muted);font-size:0.6rem">${p.os}/${p.arch}</div>
+          </div>
+        `).join('')}
+      </div>`;
+  }
+
+  async buildAgent() {
+    const btn = document.getElementById('build-btn');
+    const status = document.getElementById('build-status');
+    const goos = document.getElementById('build-goos').value;
+    const goarch = document.getElementById('build-goarch').value;
+    const profile = document.getElementById('build-profile').value;
+
+    btn.disabled = true;
+    btn.textContent = 'BUILDING...';
+    status.textContent = '';
+
+    try {
+      const result = await this.api.post('/builds/', { goos, goarch, profile });
+      if (result.error) {
+        this.showToast('Build failed: ' + result.error, 'error');
+        btn.disabled = false;
+        btn.textContent = 'BUILD AGENT';
+        return;
+      }
+      status.innerHTML = `<span style="color:var(--yellow)">Building ${goos}/${goarch}...</span>`;
+      this.pollBuild(result.id, btn, status);
+    } catch (e) {
+      this.showToast('Build request failed: ' + e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'BUILD AGENT';
+    }
+  }
+
+  async pollBuild(buildId, btn, status) {
+    let attempts = 0;
+    const poll = async () => {
+      attempts++;
+      try {
+        const build = await this.api.get(`/builds/${buildId}`);
+        if (build.status === 'completed') {
+          btn.disabled = false;
+          btn.textContent = 'BUILD AGENT';
+          status.innerHTML = `<span style="color:var(--green)">Build complete!</span> <a href="/api/v1/builds/${buildId}/download" style="color:var(--cyan);text-decoration:underline" target="_blank">DOWNLOAD</a>`;
+          this.showToast(`Agent built: ${build.goos}/${build.goarch}`, 'success');
+          return;
+        }
+        if (build.status === 'failed') {
+          btn.disabled = false;
+          btn.textContent = 'BUILD AGENT';
+          status.innerHTML = `<span style="color:var(--red)">Build failed: ${esc(build.error_message || 'unknown error')}</span>`;
+          this.showToast('Agent build failed', 'error');
+          return;
+        }
+        if (attempts < 60) setTimeout(poll, 3000);
+        else {
+          status.innerHTML = '<span style="color:var(--yellow)">Build timed out — check server logs</span>';
+          btn.disabled = false;
+          btn.textContent = 'BUILD AGENT';
+        }
+      } catch (e) {
+        status.innerHTML = `<span style="color:var(--red)">Poll error: ${esc(e.message)}</span>`;
+        btn.disabled = false;
+        btn.textContent = 'BUILD AGENT';
+      }
+    };
+    setTimeout(poll, 3000);
+  }
+
+  async renderAccountTab() {
+    const el = document.getElementById('settings-content');
+    el.innerHTML = `
+      <div class="camp-detail" style="margin-top:0.5rem">
+        <div style="margin-bottom:1rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">ACCOUNT INFO</div>
+        <div class="config-grid">
+          <div class="form-group">
+            <label>Username</label>
+            <div class="bot-field-value" style="color:var(--text-bright);font-weight:600">${esc(this.username)}</div>
+          </div>
+          <div class="form-group">
+            <label>Role</label>
+            <div class="bot-field-value"><span class="os-tag">${esc(this.role).toUpperCase()}</span></div>
+          </div>
+          <div class="form-group">
+            <label>Session</label>
+            <div class="bot-field-value" style="color:var(--green)">ACTIVE</div>
+          </div>
+        </div>
+      </div>
+      <div class="camp-detail">
+        <div style="margin-bottom:1rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">CHANGE PASSWORD</div>
+        <div class="config-grid">
+          <div class="form-group">
+            <label>Current Password</label>
+            <input type="password" id="pw-current" placeholder="current password">
+          </div>
+          <div class="form-group">
+            <label>New Password</label>
+            <input type="password" id="pw-new" placeholder="new password (min 8 chars)">
+          </div>
+          <div class="form-group">
+            <label>Confirm New Password</label>
+            <input type="password" id="pw-confirm" placeholder="confirm new password">
+          </div>
+        </div>
+        <div style="margin-top:1rem">
+          <button class="btn-accent" onclick="app.changePassword()">CHANGE PASSWORD</button>
+        </div>
+      </div>`;
+  }
+
+  async changePassword() {
+    const current = document.getElementById('pw-current').value;
+    const newPw = document.getElementById('pw-new').value;
+    const confirm = document.getElementById('pw-confirm').value;
+    if (!current || !newPw) { this.showToast('Fill in all fields', 'warning'); return; }
+    if (newPw.length < 8) { this.showToast('Password must be at least 8 characters', 'warning'); return; }
+    if (newPw !== confirm) { this.showToast('Passwords do not match', 'warning'); return; }
+    try {
+      const result = await this.api.put('/auth/password', { current_password: current, new_password: newPw });
+      if (result.error) {
+        this.showToast(result.error, 'error');
+        return;
+      }
+      this.showToast('Password changed successfully', 'success');
+      document.getElementById('pw-current').value = '';
+      document.getElementById('pw-new').value = '';
+      document.getElementById('pw-confirm').value = '';
+    } catch (e) {
+      this.showToast('Failed to change password: ' + e.message, 'error');
     }
   }
 

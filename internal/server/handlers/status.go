@@ -123,6 +123,52 @@ func (h *StatusHandler) AuditEvents(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"events": events, "count": len(events)})
 }
 
+func (h *StatusHandler) DatabaseStats(c *fiber.Ctx) error {
+	type tableSize struct {
+		Name  string `json:"name"`
+		Rows  int    `json:"rows"`
+	}
+	tables := []string{"bots", "commands", "credentials", "campaigns", "campaign_tasks", "audit_events", "operators", "exfil_files", "agent_builds"}
+	var stats []tableSize
+	for _, t := range tables {
+		var count int
+		h.db.QueryRow(`SELECT COUNT(*) FROM ` + t).Scan(&count)
+		stats = append(stats, tableSize{Name: t, Rows: count})
+	}
+
+	var dbSize string
+	h.db.QueryRow(`SELECT pg_size_pretty(pg_database_size(current_database()))`).Scan(&dbSize)
+
+	var deadBots, staleCommands int
+	h.db.QueryRow(`SELECT COUNT(*) FROM bots WHERE last_seen < NOW() - INTERVAL '2 days'`).Scan(&deadBots)
+	h.db.QueryRow(`SELECT COUNT(*) FROM commands WHERE status IN ('pending','executing') AND created_at < NOW() - INTERVAL '1 hour'`).Scan(&staleCommands)
+
+	return c.JSON(fiber.Map{
+		"tables":          stats,
+		"database_size":   dbSize,
+		"dead_bots":       deadBots,
+		"stale_commands":  staleCommands,
+	})
+}
+
+func (h *StatusHandler) CleanupDeadBots(c *fiber.Ctx) error {
+	result, err := h.db.Exec(`DELETE FROM bots WHERE last_seen < NOW() - INTERVAL '7 days'`)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "cleanup failed"})
+	}
+	rows, _ := result.RowsAffected()
+	return c.JSON(fiber.Map{"deleted": rows})
+}
+
+func (h *StatusHandler) CleanupStaleCommands(c *fiber.Ctx) error {
+	result, err := h.db.Exec(`UPDATE commands SET status = 'failed', output = 'timed out (stale)' WHERE status IN ('pending','executing') AND created_at < NOW() - INTERVAL '1 hour'`)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "cleanup failed"})
+	}
+	rows, _ := result.RowsAffected()
+	return c.JSON(fiber.Map{"cleaned": rows})
+}
+
 func formatUptime(d time.Duration) string {
 	days := int(d.Hours()) / 24
 	hours := int(d.Hours()) % 24

@@ -681,7 +681,7 @@ body {
 
 /* ===== ACTIVITY FEED ===== */
 .activity-feed {
-  max-height: 240px;
+  max-height: 420px;
   overflow-y: auto;
 }
 
