@@ -135,6 +135,9 @@ func (h *OperatorHandler) List(c *fiber.Ctx) error {
 			"active": active, "last_login": lastLogin, "created_at": createdAt,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "error reading operators"})
+	}
 	if ops == nil {
 		ops = []fiber.Map{}
 	}

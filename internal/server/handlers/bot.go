@@ -135,6 +135,9 @@ func (h *BotHandler) List(c *fiber.Ctx) error {
 			"last_seen": lastSeen, "status": status, "beacon_interval": beaconInterval, "created_at": createdAt,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "error reading bots"})
+	}
 	if bots == nil {
 		bots = []fiber.Map{}
 	}

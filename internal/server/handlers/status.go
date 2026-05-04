@@ -1,10 +1,15 @@
 package handlers
 
 import (
+	"runtime"
+	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/shardc2/shardc2/internal/database"
 	"github.com/shardc2/shardc2/pkg/policy"
 )
+
+var serverStartTime = time.Now()
 
 type StatusHandler struct {
 	db     *database.DB
@@ -42,4 +47,102 @@ func (h *StatusHandler) SafetyStatus(c *fiber.Ctx) error {
 		"external_brute":    h.policy.AllowExternalBrute,
 		"auto_deploy":       h.policy.AllowAutoDeploy,
 	})
+}
+
+func (h *StatusHandler) SystemInfo(c *fiber.Ctx) error {
+	var totalBots, activeBots, totalCreds, totalCampaigns, runningCampaigns, totalOperators int
+	if h.db != nil {
+		h.db.QueryRow(`SELECT
+			(SELECT COUNT(*) FROM bots),
+			(SELECT COUNT(*) FROM bots WHERE last_seen > NOW() - INTERVAL '5 minutes'),
+			(SELECT COUNT(*) FROM credentials),
+			(SELECT COUNT(*) FROM campaigns),
+			(SELECT COUNT(*) FROM campaigns WHERE status = 'running'),
+			(SELECT COUNT(*) FROM operators WHERE active = true)
+		`).Scan(&totalBots, &activeBots, &totalCreds, &totalCampaigns, &runningCampaigns, &totalOperators)
+	}
+
+	uptime := time.Since(serverStartTime)
+
+	return c.JSON(fiber.Map{
+		"version":            "1.0.0",
+		"go_version":         runtime.Version(),
+		"os":                 runtime.GOOS,
+		"arch":               runtime.GOARCH,
+		"uptime_seconds":     int(uptime.Seconds()),
+		"uptime_human":       formatUptime(uptime),
+		"total_bots":         totalBots,
+		"active_bots":        activeBots,
+		"total_credentials":  totalCreds,
+		"total_campaigns":    totalCampaigns,
+		"running_campaigns":  runningCampaigns,
+		"active_operators":   totalOperators,
+		"goroutines":         runtime.NumGoroutine(),
+		"policy_safe_mode":   h.policy.SafeMode,
+		"external_brute":     h.policy.AllowExternalBrute,
+		"auto_deploy":        h.policy.AllowAutoDeploy,
+	})
+}
+
+func (h *StatusHandler) AuditEvents(c *fiber.Ctx) error {
+	limitStr := c.Query("limit", "50")
+	limit := 50
+	if l := parseInt(limitStr); l > 0 && l <= 200 {
+		limit = l
+	}
+
+	rows, err := h.db.Query(`
+		SELECT id, COALESCE(operator_username, ''), COALESCE(operator_role, ''),
+			COALESCE(host(source_ip), ''), action, COALESCE(object_type, ''),
+			COALESCE(object_id, ''), outcome, COALESCE(details::text, '{}'), created_at
+		FROM audit_events ORDER BY created_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to query audit events"})
+	}
+	defer rows.Close()
+
+	var events []fiber.Map
+	for rows.Next() {
+		var id, username, role, ip, action, objType, objID, outcome, details string
+		var createdAt time.Time
+		if err := rows.Scan(&id, &username, &role, &ip, &action, &objType, &objID, &outcome, &details, &createdAt); err != nil {
+			continue
+		}
+		events = append(events, fiber.Map{
+			"id": id, "operator": username, "role": role, "source_ip": ip,
+			"action": action, "object_type": objType, "object_id": objID,
+			"outcome": outcome, "details": details, "created_at": createdAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "error reading audit events"})
+	}
+	if events == nil {
+		events = []fiber.Map{}
+	}
+	return c.JSON(fiber.Map{"events": events, "count": len(events)})
+}
+
+func formatUptime(d time.Duration) string {
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	mins := int(d.Minutes()) % 60
+	if days > 0 {
+		return time.Duration(d.Nanoseconds()).Truncate(time.Minute).String()
+	}
+	if hours > 0 {
+		return time.Duration(d.Nanoseconds()).Truncate(time.Minute).String()
+	}
+	_ = mins
+	return d.Truncate(time.Second).String()
+}
+
+func parseInt(s string) int {
+	n := 0
+	for _, c := range s {
+		if c >= '0' && c <= '9' {
+			n = n*10 + int(c-'0')
+		}
+	}
+	return n
 }

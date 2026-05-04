@@ -139,6 +139,9 @@ func (h *CampaignHandler) List(c *fiber.Ctx) error {
 			"created_at": createdAt, "updated_at": updatedAt,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "error reading campaigns"})
+	}
 	if camps == nil {
 		camps = []fiber.Map{}
 	}
@@ -313,6 +316,9 @@ func (h *CampaignHandler) ListBots(c *fiber.Ctx) error {
 			"status": status, "last_seen": lastSeen,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "error reading campaign bots"})
+	}
 	if bots == nil {
 		bots = []fiber.Map{}
 	}
@@ -425,6 +431,9 @@ func (h *CampaignHandler) Results(c *fiber.Ctx) error {
 			"output": output, "created_at": createdAt, "completed_at": completedAt,
 			"hostname": hostname, "ip_address": ip,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "error reading results"})
 	}
 	if tasks == nil {
 		tasks = []fiber.Map{}

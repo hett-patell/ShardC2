@@ -103,6 +103,9 @@ func (h *CommandHandler) getPending(c *fiber.Ctx, botID string) error {
 		}
 		cmds = append(cmds, cmd)
 	}
+	if err := rows.Err(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "error reading commands"})
+	}
 	if cmds == nil {
 		cmds = []fiber.Map{}
 	}
@@ -180,6 +183,9 @@ func (h *CommandHandler) History(c *fiber.Ctx) error {
 			"id": id, "type": cmdType, "payload": payload, "output": output,
 			"status": status, "created_at": createdAt, "executed_at": executedAt,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "error reading history"})
 	}
 	if cmds == nil {
 		cmds = []fiber.Map{}

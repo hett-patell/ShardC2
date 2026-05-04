@@ -78,6 +78,9 @@ func (h *ExfilHandler) List(c *fiber.Ctx) error {
 			"size": size, "uploaded_at": uploadedAt,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "error reading exfil data"})
+	}
 	if items == nil {
 		items = []fiber.Map{}
 	}

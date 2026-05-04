@@ -293,8 +293,8 @@ class App {
       el.innerHTML = `<div class="table-wrap"><table>
         <thead><tr><th>ID</th><th>Host</th><th>Internal IP</th><th>Platform</th><th>User</th><th>Status</th><th>Last Beacon</th></tr></thead>
         <tbody>${this.bots.map(b => `
-          <tr class="clickable" onclick="app.openTerminalForBot('${b.id}')">
-            <td style="color:var(--red)">${b.id.substring(0, 8)}</td>
+          <tr class="clickable" onclick="app.openTerminalForBot('${escAttr(b.id)}')">
+            <td style="color:var(--red)">${esc(b.id.substring(0, 8))}</td>
             <td style="color:var(--text-bright)">${esc(b.hostname)}</td>
             <td>${esc(b.ip_address)}</td>
             <td><span class="os-tag">${osTag(b.os)}</span>${esc(b.architecture)}</td>
@@ -350,8 +350,8 @@ class App {
           <td>${statusBadge(b)}</td>
           <td>${timeAgo(b.last_seen)}</td>
           <td>
-            ${this.canEdit() ? `<button class="btn-sm" onclick="app.openTerminalForBot('${b.id}')">SHELL</button>
-            <button class="btn-sm btn-danger" onclick="app.removeBot('${b.id}')">KILL</button>` : '<span style="color:var(--text-muted)">-</span>'}
+            ${this.canEdit() ? `<button class="btn-sm" onclick="app.openTerminalForBot('${escAttr(b.id)}')">SHELL</button>
+            <button class="btn-sm btn-danger" onclick="app.removeBot('${escAttr(b.id)}')">KILL</button>` : '<span style="color:var(--text-muted)">-</span>'}
           </td>
         </tr>`).join('')}</tbody></table></div>`;
 
@@ -405,11 +405,11 @@ class App {
     }
 
     const opts = this.bots.map(b =>
-      `<option value="${b.id}" ${b.id === this.selectedBotId ? 'selected' : ''}>${esc(b.hostname)} [${b.id.substring(0, 8)}] ${esc(b.ip_address)}</option>`
+      `<option value="${escAttr(b.id)}" ${b.id === this.selectedBotId ? 'selected' : ''}>${esc(b.hostname)} [${esc(b.id.substring(0, 8))}] ${esc(b.ip_address)}</option>`
     ).join('');
 
     const multiChips = this.bots.map(b =>
-      `<div class="bot-chip ${this.multiMode ? 'multi-target' : ''}" data-botid="${b.id}" onclick="this.classList.toggle('selected')">${esc(b.hostname)} [${b.id.substring(0, 8)}]</div>`
+      `<div class="bot-chip ${this.multiMode ? 'multi-target' : ''}" data-botid="${escAttr(b.id)}" onclick="this.classList.toggle('selected')">${esc(b.hostname)} [${esc(b.id.substring(0, 8))}]</div>`
     ).join('');
 
     c.innerHTML = `
@@ -758,10 +758,10 @@ class App {
           <td style="color:var(--text-bright)">${esc(c.target)}</td>
           <td><span class="os-tag">${esc(c.service).toUpperCase()}</span></td>
           <td style="color:var(--red-bright)">${esc(c.username)}${c.valid ? ' <span class="badge badge-active" style="font-size:0.55rem">VERIFIED</span>' : ''}</td>
-          <td style="color:var(--yellow);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.credValueDisplay(c)}${this.canEdit() ? ` <button class="btn-sm" onclick="app.revealCredential('${c.id}', this)">REVEAL</button>` : ''}</td>
+          <td style="color:var(--yellow);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.credValueDisplay(c)}${this.canEdit() ? ` <button class="btn-sm" onclick="app.revealCredential('${escAttr(c.id)}', this)">REVEAL</button>` : ''}</td>
           <td title="${srcTitle}" style="color:var(--text-muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(srcFile)}</td>
           <td>${timeAgo(c.discovered_at)}</td>
-          <td>${this.canEdit() ? `<button class="btn-sm btn-danger" onclick="app.deleteCredential('${c.id}')">DELETE</button>` : '<span style="color:var(--text-muted)">-</span>'}</td>
+          <td>${this.canEdit() ? `<button class="btn-sm btn-danger" onclick="app.deleteCredential('${escAttr(c.id)}')">DELETE</button>` : '<span style="color:var(--text-muted)">-</span>'}</td>
         </tr>`;
       }).join('')}</tbody></table></div>`;
   }
@@ -835,8 +835,8 @@ class App {
         <div style="margin-top:0.8rem;margin-bottom:0.6rem;color:var(--text-muted);font-size:0.65rem;letter-spacing:0.1em">ASSIGN IMPLANTS</div>
         <div class="bot-picker" id="camp-bot-picker">
           ${this.bots.map(b => `
-            <div class="bot-chip" data-botid="${b.id}" onclick="this.classList.toggle('selected')">
-              <span>${esc(b.hostname)} [${b.id.substring(0, 8)}]</span>
+            <div class="bot-chip" data-botid="${escAttr(b.id)}" onclick="this.classList.toggle('selected')">
+              <span>${esc(b.hostname)} [${esc(b.id.substring(0, 8))}]</span>
               <span style="color:var(--text-muted);font-size:0.65rem">${esc(b.ip_address)}</span>
             </div>`).join('')}
         </div>
@@ -1076,7 +1076,7 @@ class App {
             </div>`
           : '<span style="color:var(--text-muted);font-size:0.7rem">-</span>';
         return `
-        <tr class="clickable" onclick="app.openCampaign('${c.id}')">
+        <tr class="clickable" onclick="app.openCampaign('${escAttr(c.id)}')">
           <td style="color:var(--red-bright);font-weight:600">${esc(c.name)}</td>
           <td><span class="os-tag">${esc(c.type).toUpperCase()}</span></td>
           <td>${campStatusBadge(c.status)}</td>
@@ -1085,11 +1085,11 @@ class App {
           <td>${timeAgo(c.created_at)}</td>
           <td>
             ${app.canEdit() ? `
-            ${c.status === 'created' ? `<button class="btn-accent" style="padding:0.25rem 0.6rem;font-size:0.65rem" onclick="event.stopPropagation();app.launchCampaign('${c.id}')">LAUNCH</button>` : ''}
-            ${c.status === 'running' ? `<button class="btn-sm" onclick="event.stopPropagation();app.pauseCampaign('${c.id}')">PAUSE</button>` : ''}
-            ${c.status === 'paused' ? `<button class="btn-sm" onclick="event.stopPropagation();app.resumeCampaign('${c.id}')">RESUME</button>` : ''}
-            ${c.status === 'completed' || c.status === 'failed' || c.status === 'paused' ? `<button class="btn-sm" style="color:var(--cyan)" onclick="event.stopPropagation();app.replayCampaign('${c.id}')">REPLAY</button>` : ''}
-            <button class="btn-sm btn-danger" onclick="event.stopPropagation();app.deleteCampaign('${c.id}')">DELETE</button>
+            ${c.status === 'created' ? `<button class="btn-accent" style="padding:0.25rem 0.6rem;font-size:0.65rem" onclick="event.stopPropagation();app.launchCampaign('${escAttr(c.id)}')">LAUNCH</button>` : ''}
+            ${c.status === 'running' ? `<button class="btn-sm" onclick="event.stopPropagation();app.pauseCampaign('${escAttr(c.id)}')">PAUSE</button>` : ''}
+            ${c.status === 'paused' ? `<button class="btn-sm" onclick="event.stopPropagation();app.resumeCampaign('${escAttr(c.id)}')">RESUME</button>` : ''}
+            ${c.status === 'completed' || c.status === 'failed' || c.status === 'paused' ? `<button class="btn-sm" style="color:var(--cyan)" onclick="event.stopPropagation();app.replayCampaign('${escAttr(c.id)}')">REPLAY</button>` : ''}
+            <button class="btn-sm btn-danger" onclick="event.stopPropagation();app.deleteCampaign('${escAttr(c.id)}')">DELETE</button>
             ` : '<span style="color:var(--text-muted)">-</span>'}
           </td>
         </tr>`;
@@ -1124,10 +1124,10 @@ class App {
           <span class="page-tag">${esc(camp.type).toUpperCase()}</span>
           <div style="margin-left:auto;display:flex;gap:0.5rem">
             ${this.canEdit() ? `
-            ${camp.status === 'created' ? `<button class="btn-accent" onclick="app.launchCampaign('${id}')">LAUNCH</button>` : ''}
-            ${camp.status === 'running' ? `<button class="btn-sm" onclick="app.pauseCampaign('${id}')">PAUSE</button>` : ''}
-            ${camp.status === 'paused' ? `<button class="btn-accent" onclick="app.resumeCampaign('${id}')">RESUME</button>` : ''}
-            ${camp.status === 'completed' || camp.status === 'failed' || camp.status === 'paused' ? `<button class="btn-accent" onclick="app.replayCampaign('${id}')">REPLAY</button>` : ''}
+            ${camp.status === 'created' ? `<button class="btn-accent" onclick="app.launchCampaign('${escAttr(id)}')">LAUNCH</button>` : ''}
+            ${camp.status === 'running' ? `<button class="btn-sm" onclick="app.pauseCampaign('${escAttr(id)}')">PAUSE</button>` : ''}
+            ${camp.status === 'paused' ? `<button class="btn-accent" onclick="app.resumeCampaign('${escAttr(id)}')">RESUME</button>` : ''}
+            ${camp.status === 'completed' || camp.status === 'failed' || camp.status === 'paused' ? `<button class="btn-accent" onclick="app.replayCampaign('${escAttr(id)}')">REPLAY</button>` : ''}
             ` : ''}
             <button class="btn-sm" onclick="app.activeCampaignId=null;app.navigate('campaigns')">BACK</button>
           </div>
@@ -1173,8 +1173,8 @@ class App {
             <div class="bot-picker" id="detail-bot-picker">
               ${this.bots.map(b => {
                 const assigned = campBots.some(cb => cb.id === b.id);
-                return `<div class="bot-chip ${assigned ? 'selected' : ''}" data-botid="${b.id}" onclick="app.toggleCampaignBot('${id}','${b.id}',this)">
-                  <span>${esc(b.hostname)} [${b.id.substring(0, 8)}]</span>
+                return `<div class="bot-chip ${assigned ? 'selected' : ''}" data-botid="${escAttr(b.id)}" onclick="app.toggleCampaignBot('${escAttr(id)}','${escAttr(b.id)}',this)">
+                  <span>${esc(b.hostname)} [${esc(b.id.substring(0, 8))}]</span>
                   <span style="color:var(--text-muted);font-size:0.65rem">${esc(b.ip_address)}</span>
                 </div>`;
               }).join('')}
@@ -1183,15 +1183,15 @@ class App {
         ` : ''}
 
         <div class="tab-bar">
-          <button class="tab-btn ${this.campaignTab === 'overview' ? 'active' : ''}" onclick="app.campaignTab='overview';app.renderCampaignDetail('${id}')">Results (${tasks.length})</button>
-          <button class="tab-btn ${this.campaignTab === 'bots' ? 'active' : ''}" onclick="app.campaignTab='bots';app.renderCampaignDetail('${id}')">Implants (${campBots.length})</button>
-          <button class="tab-btn ${this.campaignTab === 'config' ? 'active' : ''}" onclick="app.campaignTab='config';app.renderCampaignDetail('${id}')">Config</button>
+          <button class="tab-btn ${this.campaignTab === 'overview' ? 'active' : ''}" onclick="app.campaignTab='overview';app.renderCampaignDetail('${escAttr(id)}')">Results (${tasks.length})</button>
+          <button class="tab-btn ${this.campaignTab === 'bots' ? 'active' : ''}" onclick="app.campaignTab='bots';app.renderCampaignDetail('${escAttr(id)}')">Implants (${campBots.length})</button>
+          <button class="tab-btn ${this.campaignTab === 'config' ? 'active' : ''}" onclick="app.campaignTab='config';app.renderCampaignDetail('${escAttr(id)}')">Config</button>
         </div>
         <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
-          <button class="btn-sm" onclick="app.exportCampaign('${id}','json')">EXPORT JSON</button>
-          <button class="btn-sm" onclick="app.exportCampaign('${id}','html')">EXPORT HTML</button>
-          <button class="btn-sm" onclick="app.exportCampaign('${id}','md')">EXPORT MD</button>
-          ${camp.type === 'recon' && this.canEdit() ? `<button class="btn-accent" onclick="app.extractSecrets('${id}')" id="extract-btn">EXTRACT SECRETS</button>` : ''}
+          <button class="btn-sm" onclick="app.exportCampaign('${escAttr(id)}','json')">EXPORT JSON</button>
+          <button class="btn-sm" onclick="app.exportCampaign('${escAttr(id)}','html')">EXPORT HTML</button>
+          <button class="btn-sm" onclick="app.exportCampaign('${escAttr(id)}','md')">EXPORT MD</button>
+          ${camp.type === 'recon' && this.canEdit() ? `<button class="btn-accent" onclick="app.extractSecrets('${escAttr(id)}')" id="extract-btn">EXTRACT SECRETS</button>` : ''}
         </div>
         <div id="camp-tab-content"></div>`;
 
@@ -1344,19 +1344,108 @@ class App {
     }
   }
 
-  // ===== SETTINGS / OPERATORS =====
+  // ===== SETTINGS =====
   async renderSettings() {
     if (!this.isAdmin()) {
       this.navigate('dashboard');
       return;
     }
+    if (!this.settingsTab) this.settingsTab = 'system';
     const c = document.getElementById('content');
     c.innerHTML = `
       <div class="page-header">
         <h1 class="page-title">SETTINGS</h1>
-        <span class="page-tag">USER MANAGEMENT</span>
+        <span class="page-tag">ADMINISTRATION</span>
       </div>
-      <div class="camp-detail" id="operator-create-panel">
+      <div class="tab-bar">
+        <button class="tab-btn ${this.settingsTab === 'system' ? 'active' : ''}" onclick="app.settingsTab='system';app.renderSettings()">SYSTEM</button>
+        <button class="tab-btn ${this.settingsTab === 'operators' ? 'active' : ''}" onclick="app.settingsTab='operators';app.renderSettings()">OPERATORS</button>
+        <button class="tab-btn ${this.settingsTab === 'audit' ? 'active' : ''}" onclick="app.settingsTab='audit';app.renderSettings()">AUDIT LOG</button>
+      </div>
+      <div id="settings-content"></div>`;
+
+    if (this.settingsTab === 'system') await this.renderSystemInfo();
+    else if (this.settingsTab === 'operators') await this.renderOperatorsTab();
+    else if (this.settingsTab === 'audit') await this.renderAuditLog();
+  }
+
+  async renderSystemInfo() {
+    const el = document.getElementById('settings-content');
+    try {
+      const info = await this.api.get('/system/info');
+      el.innerHTML = `
+        <div class="camp-detail" style="margin-top:0.5rem">
+          <div style="margin-bottom:0.8rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">SERVER INFO</div>
+          <div class="config-grid">
+            <div class="form-group">
+              <label>Version</label>
+              <div class="bot-field-value" style="color:var(--red-bright);font-weight:600">ShardC2 v${esc(info.version)}</div>
+            </div>
+            <div class="form-group">
+              <label>Go Version</label>
+              <div class="bot-field-value">${esc(info.go_version)}</div>
+            </div>
+            <div class="form-group">
+              <label>Platform</label>
+              <div class="bot-field-value">${esc(info.os)}/${esc(info.arch)}</div>
+            </div>
+            <div class="form-group">
+              <label>Uptime</label>
+              <div class="bot-field-value" style="color:var(--green)">${esc(info.uptime_human)}</div>
+            </div>
+            <div class="form-group">
+              <label>Goroutines</label>
+              <div class="bot-field-value">${info.goroutines}</div>
+            </div>
+            <div class="form-group">
+              <label>Active Operators</label>
+              <div class="bot-field-value">${info.active_operators}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="camp-detail">
+          <div style="margin-bottom:0.8rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">ASSET SUMMARY</div>
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">Total Implants</div><div class="stat-value red">${info.total_bots}</div></div>
+            <div class="stat-card"><div class="stat-label">Active</div><div class="stat-value green">${info.active_bots}</div></div>
+            <div class="stat-card"><div class="stat-label">Credentials</div><div class="stat-value yellow">${info.total_credentials}</div></div>
+            <div class="stat-card"><div class="stat-label">Campaigns</div><div class="stat-value crimson">${info.running_campaigns}/${info.total_campaigns}</div></div>
+          </div>
+        </div>
+
+        <div class="camp-detail">
+          <div style="margin-bottom:0.8rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">SAFETY POLICY</div>
+          <div class="config-grid">
+            <div class="form-group">
+              <label>Mode</label>
+              <div class="bot-field-value">${info.policy_safe_mode ?
+                '<span class="badge badge-active">SAFE MODE</span>' :
+                '<span class="badge badge-failed">LIVE MODE</span>'}</div>
+            </div>
+            <div class="form-group">
+              <label>External Brute</label>
+              <div class="bot-field-value">${info.external_brute ?
+                '<span class="badge badge-active">ENABLED</span>' :
+                '<span class="badge badge-dead">DISABLED</span>'}</div>
+            </div>
+            <div class="form-group">
+              <label>Auto Deploy</label>
+              <div class="bot-field-value">${info.auto_deploy ?
+                '<span class="badge badge-active">ENABLED</span>' :
+                '<span class="badge badge-dead">DISABLED</span>'}</div>
+            </div>
+          </div>
+        </div>`;
+    } catch (e) {
+      el.innerHTML = `<div class="empty-state"><p>Failed to load system info: ${esc(e.message)}</p></div>`;
+    }
+  }
+
+  async renderOperatorsTab() {
+    const el = document.getElementById('settings-content');
+    el.innerHTML = `
+      <div class="camp-detail" style="margin-top:0.5rem" id="operator-create-panel">
         <div style="margin-bottom:1rem;color:var(--text-muted);font-size:0.7rem;letter-spacing:0.1em">CREATE OPERATOR</div>
         <div class="config-grid">
           <div class="form-group">
@@ -1387,6 +1476,40 @@ class App {
     await this.refreshOperators();
   }
 
+  async renderAuditLog() {
+    const el = document.getElementById('settings-content');
+    el.innerHTML = '<div class="empty-state"><p>LOADING AUDIT LOG...</p></div>';
+    try {
+      const data = await this.api.get('/audit/events?limit=100');
+      const events = data.events || [];
+      if (events.length === 0) {
+        el.innerHTML = '<div class="empty-state"><div class="icon">&#9776;</div><p>NO AUDIT EVENTS</p></div>';
+        return;
+      }
+      el.innerHTML = `
+        <div style="margin-top:0.5rem;margin-bottom:0.5rem;color:var(--text-muted);font-size:0.65rem">
+          Showing last ${events.length} events
+        </div>
+        <div class="table-wrap"><table>
+        <thead><tr><th>Time</th><th>Operator</th><th>Role</th><th>Action</th><th>Target</th><th>Outcome</th><th>IP</th></tr></thead>
+        <tbody>${events.map(e => {
+          const outcomeClass = e.outcome === 'success' ? 'badge-active' :
+                               e.outcome === 'denied' ? 'badge-failed' : 'badge-dead';
+          return `<tr>
+            <td style="font-size:0.7rem;white-space:nowrap">${timeAgo(e.created_at)}</td>
+            <td style="color:var(--text-bright)">${esc(e.operator) || '<span style="color:var(--text-muted)">system</span>'}</td>
+            <td><span class="os-tag">${esc(e.role).toUpperCase() || '-'}</span></td>
+            <td style="color:var(--yellow)">${esc(e.action)}</td>
+            <td style="font-size:0.7rem">${esc(e.object_type)}${e.object_id ? ':' + esc(e.object_id.substring(0, 8)) : ''}</td>
+            <td><span class="badge ${outcomeClass}">${esc(e.outcome).toUpperCase()}</span></td>
+            <td style="font-size:0.7rem;color:var(--text-muted)">${esc(e.source_ip)}</td>
+          </tr>`;
+        }).join('')}</tbody></table></div>`;
+    } catch (e) {
+      el.innerHTML = `<div class="empty-state"><p>Failed to load audit log: ${esc(e.message)}</p></div>`;
+    }
+  }
+
   async refreshOperators() {
     try {
       const data = await this.api.get('/operators');
@@ -1408,7 +1531,7 @@ class App {
             <td>${o.active !== false ? '<span class="badge badge-active">YES</span>' : '<span class="badge badge-dead">NO</span>'}</td>
             <td>${o.last_login ? timeAgo(o.last_login) : '-'}</td>
             <td>${o.created_at ? timeAgo(o.created_at) : '-'}</td>
-            <td><button class="btn-sm btn-danger" onclick="app.deleteOperator('${o.id}')">DELETE</button></td>
+            <td><button class="btn-sm btn-danger" onclick="app.deleteOperator('${escAttr(o.id)}')">DELETE</button></td>
           </tr>`).join('')}</tbody></table></div>`;
     } catch (e) {
       const el = document.getElementById('operators-table');
@@ -1451,7 +1574,7 @@ class App {
     }
 
     const opts = this.bots.map(b =>
-      `<option value="${b.id}" ${b.id === this.fileBrowserBotId ? 'selected' : ''}>${esc(b.hostname)} [${b.id.substring(0, 8)}]</option>`
+      `<option value="${escAttr(b.id)}" ${b.id === this.fileBrowserBotId ? 'selected' : ''}>${esc(b.hostname)} [${esc(b.id.substring(0, 8))}]</option>`
     ).join('');
 
     c.innerHTML = `
@@ -1485,7 +1608,7 @@ class App {
       const result = await this.api.post('/commands/', {
         bot_id: this.fileBrowserBotId,
         type: 'shell',
-        payload: `ls -la --time-style=long-iso ${path.replace(/'/g, "\\'")} 2>&1`,
+        payload: `ls -la --time-style=long-iso ${shellEsc(path)} 2>&1`,
       });
 
       const cmdId = result.id;
@@ -1519,7 +1642,7 @@ class App {
     for (const part of parts) {
       acc += part + '/';
       const p = acc;
-      crumbs += `<span class="fb-sep">/</span><span class="fb-crumb" onclick="app.browseDir('${esc(p)}')">${esc(part)}</span>`;
+      crumbs += `<span class="fb-sep">/</span><span class="fb-crumb" onclick="app.browseDir('${escAttr(p)}')">${esc(part)}</span>`;
     }
     el.innerHTML = crumbs;
   }
@@ -1556,19 +1679,19 @@ class App {
     el.innerHTML = `<div class="table-wrap"><table>
       <thead><tr><th>Name</th><th>Permissions</th><th>Owner</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead>
       <tbody>
-        ${parentPath !== null ? `<tr class="clickable" onclick="app.browseDir('${esc(parentPath)}')"><td colspan="6" style="color:var(--yellow)">..</td></tr>` : ''}
+        ${parentPath !== null ? `<tr class="clickable" onclick="app.browseDir('${escAttr(parentPath)}')"><td colspan="6" style="color:var(--yellow)">..</td></tr>` : ''}
         ${files.map(f => {
           const fullPath = currentPath.replace(/\/$/, '') + '/' + f.name;
           const nameStyle = f.isDir ? 'color:var(--yellow);font-weight:600' : f.isLink ? 'color:var(--green)' : 'color:var(--text-bright)';
           const icon = f.isDir ? '&#128193; ' : f.isLink ? '&#128279; ' : '';
-          const clickAction = f.isDir ? `onclick="app.browseDir('${esc(fullPath)}/')"` : '';
+          const clickAction = f.isDir ? `onclick="app.browseDir('${escAttr(fullPath)}/')"` : '';
           return `<tr class="${f.isDir ? 'clickable' : ''}" ${clickAction}>
             <td style="${nameStyle}">${icon}${esc(f.name)}${f.isLink ? ` <span style="color:var(--text-muted)">&rarr; ${esc(f.raw.split(' -> ')[1] || '')}</span>` : ''}</td>
             <td style="color:var(--text-muted);font-size:0.72rem">${esc(f.perms)}</td>
             <td style="font-size:0.72rem">${esc(f.owner)}</td>
             <td style="font-size:0.72rem">${formatSize(f.size)}</td>
             <td style="font-size:0.72rem;color:var(--text-muted)">${f.date} ${f.time}</td>
-            <td>${!f.isDir && app.canEdit() ? `<button class="btn-sm" onclick="event.stopPropagation();app.downloadFile('${esc(fullPath)}')">GET</button>` : ''}</td>
+            <td>${!f.isDir && app.canEdit() ? `<button class="btn-sm" onclick="event.stopPropagation();app.downloadFile('${escAttr(fullPath)}')">GET</button>` : ''}</td>
           </tr>`;
         }).join('')}
       </tbody></table></div>`;
@@ -1595,6 +1718,15 @@ function esc(str) {
   const d = document.createElement('div');
   d.textContent = str;
   return d.innerHTML;
+}
+
+function escAttr(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function shellEsc(path) {
+  return "'" + path.replace(/'/g, "'\\''") + "'";
 }
 
 function timeAgo(dateStr) {

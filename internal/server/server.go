@@ -284,6 +284,8 @@ func (s *Server) setupRoutes() {
 
 	statusHandler := handlers.NewStatusHandler(s.db, s.config.Policy)
 	op.Get("/safety/status", statusHandler.SafetyStatus)
+	op.Get("/system/info", statusHandler.SystemInfo)
+	op.Get("/audit/events", statusHandler.AuditEvents)
 
 	camps.Get("/:id/report.md", func(c *fiber.Ctx) error {
 		campID := c.Params("id")

@@ -26,7 +26,7 @@ const banner = `
   ___) | | | | (_| | | | (_| | |___ / __/
  |____/|_| |_|\__,_|_|  \__,_|\____|_____|
 
- Command & Control Framework v0.2.0
+ Command & Control Framework v1.0.0
 `
 
 func main() {

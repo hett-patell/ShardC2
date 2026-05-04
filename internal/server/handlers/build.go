@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -104,5 +106,10 @@ func (h *BuildHandler) Download(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "build not ready", "status": status})
 	}
 
-	return c.SendFile(path, false)
+	clean := filepath.Clean(path)
+	if strings.Contains(clean, "..") || filepath.IsAbs(clean) && !strings.HasPrefix(clean, filepath.Clean("bin")) {
+		return c.Status(403).JSON(fiber.Map{"error": "invalid artifact path"})
+	}
+
+	return c.SendFile(clean, false)
 }

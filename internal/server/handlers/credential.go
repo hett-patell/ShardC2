@@ -104,6 +104,9 @@ func (h *CredentialHandler) List(c *fiber.Ctx) error {
 			"discovered_at": discoveredAt,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "error reading credentials"})
+	}
 	if creds == nil {
 		creds = []fiber.Map{}
 	}
