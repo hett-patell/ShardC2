@@ -748,7 +748,7 @@ class App {
     }
 
     el.innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>Category</th><th>Target</th><th>Service</th><th>Username</th><th>Value</th><th>Source</th><th>Valid</th><th>Discovered</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Category</th><th>Target</th><th>Service</th><th>Username</th><th>Value</th><th>Source</th><th>Discovered</th><th>Actions</th></tr></thead>
       <tbody>${creds.map(c => {
         const srcFile = c.source_path ? c.source_path.split('/').pop() : '-';
         const srcTitle = c.source_path ? esc(c.source_path) : '';
@@ -756,10 +756,9 @@ class App {
           <td>${this.credCategoryBadge(c.category || 'login')}</td>
           <td style="color:var(--text-bright)">${esc(c.target)}</td>
           <td><span class="os-tag">${esc(c.service).toUpperCase()}</span></td>
-          <td style="color:var(--red-bright)">${esc(c.username)}</td>
-          <td style="color:var(--yellow)">${this.credValueDisplay(c)}${this.canEdit() ? ` <button class="btn-sm" onclick="app.revealCredential('${c.id}', this)">REVEAL</button>` : ''}</td>
+          <td style="color:var(--red-bright)">${esc(c.username)}${c.valid ? ' <span class="badge badge-active" style="font-size:0.55rem">VERIFIED</span>' : ''}</td>
+          <td style="color:var(--yellow);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.credValueDisplay(c)}${this.canEdit() ? ` <button class="btn-sm" onclick="app.revealCredential('${c.id}', this)">REVEAL</button>` : ''}</td>
           <td title="${srcTitle}" style="color:var(--text-muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(srcFile)}</td>
-          <td>${c.valid ? '<span class="badge badge-active">VALID</span>' : '<span class="badge badge-dead">INVALID</span>'}</td>
           <td>${timeAgo(c.discovered_at)}</td>
           <td>${this.canEdit() ? `<button class="btn-sm btn-danger" onclick="app.deleteCredential('${c.id}')">DELETE</button>` : '<span style="color:var(--text-muted)">-</span>'}</td>
         </tr>`;
@@ -769,16 +768,16 @@ class App {
   async revealCredential(id, btn) {
     try {
       const data = await this.api.get(`/credentials/${id}/reveal`);
-      const span = btn.previousElementSibling;
-      if (span) {
-        const cred = this.allCreds.find(c => c.id === id);
-        if (cred && cred.category === 'ssh_key') {
-          span.innerHTML = `<pre style="white-space:pre-wrap;font-size:0.65rem;max-height:200px;overflow:auto;margin:0">${esc(data.password || '')}</pre>`;
-        } else {
-          span.textContent = data.password || '';
-        }
+      const td = btn.closest('td');
+      if (!td) return;
+      const cred = this.allCreds.find(c => c.id === id);
+      if (cred && cred.category === 'ssh_key') {
+        td.innerHTML = `<pre style="white-space:pre-wrap;font-size:0.65rem;max-height:200px;overflow:auto;margin:0;color:var(--yellow)">${esc(data.password || '')}</pre>`;
+        td.style.maxWidth = 'none';
+      } else {
+        td.textContent = data.password || '';
+        td.title = data.password || '';
       }
-      btn.remove();
     } catch (e) {
       alert('Failed to reveal credential: ' + e.message);
     }
