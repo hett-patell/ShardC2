@@ -780,7 +780,7 @@ class App {
       }
       btn.remove();
     } catch (e) {
-      this.showToast('Failed to reveal credential', 'error');
+      alert('Failed to reveal credential: ' + e.message);
     }
   }
 
