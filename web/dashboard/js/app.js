@@ -546,6 +546,10 @@ class App {
 
           selectedBots.forEach(id => this.wsSubscribe(id));
           this.pollMultiBots = selectedBots;
+          this.pollMultiCmdIds = {};
+          for (const c of cmds) {
+            if (c.id && c.bot_id) this.pollMultiCmdIds[c.bot_id] = c.id;
+          }
           this.pollCount = 0;
           setTimeout(() => this.pollMultiResults(), 2000);
         } catch (err) {
@@ -598,36 +602,43 @@ class App {
     if (this.currentPage !== 'terminal' || !this.pollMultiBots) return;
     const output = document.getElementById('term-output');
     let allDone = true;
-    this.terminalLines = [];
+    const resultLines = [];
 
     for (const botId of this.pollMultiBots) {
       const bot = this.bots.find(b => b.id === botId);
       const label = bot ? `${bot.hostname} [${botId.substring(0, 8)}]` : botId.substring(0, 8);
       try {
         const data = await this.api.get(`/commands/history/${botId}`);
-        const cmds = (data.commands || []).reverse();
-        const latest = cmds[cmds.length - 1];
+        const cmds = data.commands || [];
+        const targetId = this.pollMultiCmdIds && this.pollMultiCmdIds[botId];
+        const latest = targetId ? cmds.find(c => c.id === targetId) : cmds[0];
         if (latest) {
           if (latest.status === 'pending' || latest.status === 'executing') allDone = false;
-          this.terminalLines.push(`\n<span class="cmd-system">[${esc(label)}]</span> <span class="cmd-input">${esc(latest.payload)}</span>`);
+          resultLines.push(`\n<span class="cmd-system">[${esc(label)}]</span> <span class="cmd-input">${esc(latest.payload)}</span>`);
           if (latest.output) {
             const cls = latest.status === 'failed' ? 'cmd-error' : 'cmd-output';
-            this.terminalLines.push(`<span class="${cls}">${esc(latest.output)}</span>`);
+            resultLines.push(`<span class="${cls}">${esc(latest.output)}</span>`);
           } else {
-            this.terminalLines.push(`<span class="cmd-system">[${latest.status.toUpperCase()}...]</span>`);
+            resultLines.push(`<span class="cmd-system">[${latest.status.toUpperCase()}...]</span>`);
           }
         }
       } catch (e) {
-        this.terminalLines.push(`\n<span class="cmd-error">[${esc(label)}] fetch failed</span>`);
+        resultLines.push(`\n<span class="cmd-error">[${esc(label)}] fetch failed</span>`);
       }
     }
 
-    output.innerHTML = this.terminalLines.join('\n') || '<span class="cmd-system">[*] Awaiting results...</span>';
+    const baseLines = this.terminalLines.filter(l => !l.startsWith('@@MULTI_RESULT@@'));
+    const taggedResults = resultLines.map(l => '@@MULTI_RESULT@@' + l);
+    this.terminalLines = [...baseLines, ...taggedResults];
+    output.innerHTML = this.terminalLines.map(l => l.replace('@@MULTI_RESULT@@', '')).join('\n');
     output.scrollTop = output.scrollHeight;
 
     this.pollCount = (this.pollCount || 0) + 1;
     if (!allDone && this.pollCount < 30) {
       setTimeout(() => this.pollMultiResults(), 2000);
+    } else {
+      this.terminalLines = this.terminalLines.map(l => l.replace('@@MULTI_RESULT@@', ''));
+      this.pollMultiBots = null;
     }
   }
 
@@ -641,32 +652,21 @@ class App {
     if (!this.selectedBotId || this.currentPage !== 'terminal') return;
 
     const data = await this.api.get(`/commands/history/${this.selectedBotId}`);
-    const cmds = (data.commands || []).reverse();
+    const cmds = data.commands || [];
     const output = document.getElementById('term-output');
 
-    const bot = this.bots.find(b => b.id === this.selectedBotId);
-    this.terminalLines = [];
-
-    if (bot) {
-      this.terminalLines.push(`<span class="cmd-system">[*] Connected to ${esc(bot.hostname)} (${esc(bot.ip_address)})
-[*] Platform: ${esc(bot.os)}/${esc(bot.architecture)} | User: ${esc(bot.username)} | Priv: ${bot.privileged ? 'ROOT' : 'standard'}</span>`);
+    const lastCmd = cmds[0];
+    if (lastCmd && lastCmd.output) {
+      const pendingIdx = this.terminalLines.findIndex(l => l.includes('[PENDING...]'));
+      if (pendingIdx >= 0) {
+        const cls = lastCmd.status === 'failed' ? 'cmd-error' : 'cmd-output';
+        this.terminalLines[pendingIdx] = `<span class="${cls}">${esc(lastCmd.output)}</span>`;
+      }
+      output.innerHTML = this.terminalLines.join('\n');
+      output.scrollTop = output.scrollHeight;
+      return;
     }
 
-    cmds.forEach(cmd => {
-      this.terminalLines.push(`\n<span class="cmd-system">[${cmd.type.toUpperCase()}]</span> <span class="cmd-input">${esc(cmd.payload)}</span>`);
-      if (cmd.output) {
-        const cls = cmd.status === 'failed' ? 'cmd-error' : 'cmd-output';
-        this.terminalLines.push(`<span class="${cls}">${esc(cmd.output)}</span>`);
-      }
-      if (cmd.status === 'pending' || cmd.status === 'executing') {
-        this.terminalLines.push(`<span class="cmd-system">[${cmd.status.toUpperCase()}...]</span>`);
-      }
-    });
-
-    output.innerHTML = this.terminalLines.join('\n');
-    output.scrollTop = output.scrollHeight;
-
-    const lastCmd = cmds[cmds.length - 1];
     if (lastCmd && (lastCmd.status === 'pending' || lastCmd.status === 'executing')) {
       this.pollCount = (this.pollCount || 0) + 1;
       if (this.pollCount < 30) {
