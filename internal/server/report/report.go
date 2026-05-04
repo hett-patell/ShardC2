@@ -11,82 +11,83 @@ import (
 	"github.com/shardc2/shardc2/internal/database"
 )
 
-type CampaignReport struct {
-	Name         string
-	Type         string
-	Status       string
-	CreatedAt    time.Time
-	Config       string
-	CommandCount int
-	ResultCount  int
-	SuccessCount int
-	FailedCount  int
-	AuditEvents  []AuditEntry
-}
-
-type AuditEntry struct {
-	Action    string
-	Operator  string
-	Outcome   string
-	Timestamp time.Time
-}
-
 func GenerateCampaignReport(db *database.DB, campaignID string) (string, error) {
-	var r CampaignReport
-	err := db.QueryRow(`
-		SELECT name, type, status, COALESCE(config::text, '{}'), created_at
-		FROM campaigns WHERE id = $1`, campaignID,
-	).Scan(&r.Name, &r.Type, &r.Status, &r.Config, &r.CreatedAt)
+	data, err := GenerateJSONReport(db, campaignID)
 	if err != nil {
-		return "", fmt.Errorf("campaign not found: %w", err)
+		return "", err
 	}
-
-	db.QueryRow(`SELECT COUNT(*) FROM commands WHERE campaign_id = $1`, campaignID).Scan(&r.CommandCount)
-	db.QueryRow(`SELECT COUNT(*) FROM commands WHERE campaign_id = $1 AND status = 'completed'`, campaignID).Scan(&r.SuccessCount)
-	db.QueryRow(`SELECT COUNT(*) FROM commands WHERE campaign_id = $1 AND status = 'failed'`, campaignID).Scan(&r.FailedCount)
-	r.ResultCount = r.SuccessCount + r.FailedCount
-
-	rows, err := db.Query(`
-		SELECT action, COALESCE(operator_username, ''), outcome, created_at
-		FROM audit_events
-		WHERE object_type = 'campaign' AND object_id = $1
-		ORDER BY created_at`, campaignID)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var e AuditEntry
-			if err := rows.Scan(&e.Action, &e.Operator, &e.Outcome, &e.Timestamp); err == nil {
-				r.AuditEvents = append(r.AuditEvents, e)
-			}
-		}
+	var rpt jsonReport
+	if err := json.Unmarshal(data, &rpt); err != nil {
+		return "", fmt.Errorf("internal error: %w", err)
 	}
-
-	return renderMarkdown(campaignID, r), nil
+	return renderMarkdown(rpt), nil
 }
 
-func renderMarkdown(id string, r CampaignReport) string {
+func renderMarkdown(rpt jsonReport) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("# Campaign Report: %s\n\n", r.Name))
-	sb.WriteString(fmt.Sprintf("**ID:** `%s`\n", id))
-	sb.WriteString(fmt.Sprintf("**Type:** %s\n", r.Type))
-	sb.WriteString(fmt.Sprintf("**Status:** %s\n", r.Status))
-	sb.WriteString(fmt.Sprintf("**Created:** %s\n\n", r.CreatedAt.Format(time.RFC3339)))
+	sb.WriteString(fmt.Sprintf("# Campaign Report: %s\n\n", rpt.Name))
+	sb.WriteString(fmt.Sprintf("**ID:** `%s`\n", rpt.CampaignID))
+	sb.WriteString(fmt.Sprintf("**Type:** %s\n", rpt.Type))
+	sb.WriteString(fmt.Sprintf("**Status:** %s\n", rpt.Status))
+	sb.WriteString(fmt.Sprintf("**Created:** %s\n\n", rpt.CreatedAt.Format(time.RFC3339)))
 
 	sb.WriteString("## Configuration\n\n")
-	sb.WriteString(fmt.Sprintf("```json\n%s\n```\n\n", r.Config))
+	var prettyConfig bytes.Buffer
+	if err := json.Indent(&prettyConfig, rpt.Config, "", "  "); err == nil {
+		sb.WriteString(fmt.Sprintf("```json\n%s\n```\n\n", prettyConfig.String()))
+	} else {
+		sb.WriteString(fmt.Sprintf("```json\n%s\n```\n\n", string(rpt.Config)))
+	}
 
-	sb.WriteString("## Command Summary\n\n")
-	sb.WriteString(fmt.Sprintf("| Metric | Count |\n|---|---|\n"))
-	sb.WriteString(fmt.Sprintf("| Total Commands | %d |\n", r.CommandCount))
-	sb.WriteString(fmt.Sprintf("| Completed | %d |\n", r.SuccessCount))
-	sb.WriteString(fmt.Sprintf("| Failed | %d |\n", r.FailedCount))
-	sb.WriteString(fmt.Sprintf("| Pending | %d |\n\n", r.CommandCount-r.ResultCount))
+	completed, failed, pending := 0, 0, 0
+	for _, t := range rpt.Tasks {
+		switch t.Status {
+		case "completed":
+			completed++
+		case "failed":
+			failed++
+		default:
+			pending++
+		}
+	}
+	sb.WriteString("## Task Summary\n\n")
+	sb.WriteString("| Metric | Count |\n|---|---|\n")
+	sb.WriteString(fmt.Sprintf("| Total Tasks | %d |\n", len(rpt.Tasks)))
+	sb.WriteString(fmt.Sprintf("| Completed | %d |\n", completed))
+	sb.WriteString(fmt.Sprintf("| Failed | %d |\n", failed))
+	sb.WriteString(fmt.Sprintf("| Pending | %d |\n\n", pending))
 
-	if len(r.AuditEvents) > 0 {
+	if len(rpt.Tasks) > 0 {
+		sb.WriteString("## Tasks\n\n")
+		sb.WriteString("| Task | Bot ID | Status | Completed |\n|---|---|---|---|\n")
+		for _, t := range rpt.Tasks {
+			completedAt := ""
+			if t.CompletedAt != nil {
+				completedAt = t.CompletedAt.Format(time.RFC3339)
+			}
+			sb.WriteString(fmt.Sprintf("| %s | `%s` | %s | %s |\n", t.TaskName, t.BotID, t.Status, completedAt))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(rpt.Credentials) > 0 {
+		sb.WriteString("## Credentials Discovered\n\n")
+		sb.WriteString("| Username | Target | Port | Service | Valid | Discovered |\n|---|---|---|---|---|---|\n")
+		for _, c := range rpt.Credentials {
+			valid := "NO"
+			if c.Valid {
+				valid = "YES"
+			}
+			sb.WriteString(fmt.Sprintf("| %s | %s | %d | %s | %s | %s |\n", c.Username, c.Target, c.Port, c.Service, valid, c.DiscoveredAt.Format(time.RFC3339)))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(rpt.AuditTrail) > 0 {
 		sb.WriteString("## Audit Trail\n\n")
 		sb.WriteString("| Time | Action | Operator | Outcome |\n|---|---|---|---|\n")
-		for _, e := range r.AuditEvents {
+		for _, e := range rpt.AuditTrail {
 			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", e.Timestamp.Format(time.RFC3339), e.Action, e.Operator, e.Outcome))
 		}
 		sb.WriteString("\n")
