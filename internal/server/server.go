@@ -71,6 +71,9 @@ func New(db *database.DB, cfg ServerConfig) *Server {
 	s.setupRoutes()
 
 	app.Static("/dashboard", "./web/dashboard")
+	app.Get("/favicon.ico", func(c *fiber.Ctx) error {
+		return c.SendStatus(204)
+	})
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/dashboard/")
 	})

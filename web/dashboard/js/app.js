@@ -210,6 +210,7 @@ class App {
   navigate(page) {
     this.currentPage = page;
     clearInterval(this.refreshTimer);
+    if (page !== 'campaigns') this.activeCampaignId = null;
 
     document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
     document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
@@ -252,13 +253,16 @@ class App {
       ]);
       this.bots = botsData.bots || [];
 
-      document.getElementById('stats-grid').innerHTML = `
+      const statsEl = document.getElementById('stats-grid');
+      if (!statsEl) return;
+      statsEl.innerHTML = `
         <div class="stat-card"><div class="stat-label">Total Implants</div><div class="stat-value red">${stats.total_bots}</div></div>
         <div class="stat-card"><div class="stat-label">Active</div><div class="stat-value green">${stats.active_bots}</div></div>
         <div class="stat-card"><div class="stat-label">Pending Cmds</div><div class="stat-value yellow">${stats.pending_commands}</div></div>
         <div class="stat-card"><div class="stat-label">Campaigns</div><div class="stat-value crimson">${stats.active_campaigns}/${stats.total_campaigns}</div></div>`;
 
       const el = document.getElementById('dash-bots');
+      if (!el) return;
       if (this.bots.length === 0) {
         el.innerHTML = '<div class="empty-state"><div class="icon">&#9654;</div><p>NO IMPLANTS REGISTERED</p></div>';
         return;
@@ -303,6 +307,7 @@ class App {
     const data = await this.api.get('/bots/');
     this.bots = data.bots || [];
     const el = document.getElementById('bots-table');
+    if (!el) return;
 
     if (this.bots.length === 0) {
       el.innerHTML = '<div class="empty-state"><div class="icon">&#9654;</div><p>NO IMPLANTS REGISTERED</p></div>';
@@ -673,6 +678,7 @@ class App {
     const data = await this.api.get('/credentials/');
     const creds = data.credentials || [];
     const el = document.getElementById('creds-table');
+    if (!el) return;
 
     if (creds.length === 0) {
       el.innerHTML = '<div class="empty-state"><div class="icon">&#9670;</div><p>NO CREDENTIALS HARVESTED</p></div>';
