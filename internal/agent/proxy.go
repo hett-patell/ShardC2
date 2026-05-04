@@ -126,7 +126,9 @@ func relay(a, b net.Conn) {
 	cp := func(dst, src net.Conn) {
 		defer wg.Done()
 		io.Copy(dst, src)
-		dst.(interface{ CloseWrite() error }).CloseWrite()
+		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
+			cw.CloseWrite()
+		}
 	}
 
 	go cp(a, b)

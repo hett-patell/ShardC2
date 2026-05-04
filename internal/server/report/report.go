@@ -171,8 +171,9 @@ func GenerateJSONReport(db *database.DB, campaignID string) ([]byte, error) {
 	credRows, err := db.Query(`
 		SELECT DISTINCT c.username, c.target, c.port, COALESCE(c.service, 'ssh'), c.valid, c.discovered_at
 		FROM credentials c
-		WHERE c.bot_id IN (SELECT bot_id FROM campaign_tasks WHERE campaign_id = $1)
-		  AND c.discovered_at >= (SELECT created_at FROM campaigns WHERE id = $1)
+		WHERE c.discovered_at >= (SELECT created_at FROM campaigns WHERE id = $1)
+		  AND (c.bot_id IN (SELECT bot_id FROM campaign_tasks WHERE campaign_id = $1 AND bot_id IS NOT NULL)
+		       OR (c.bot_id IS NULL AND EXISTS (SELECT 1 FROM campaign_tasks WHERE campaign_id = $1 AND bot_id IS NULL)))
 		ORDER BY c.discovered_at`, campaignID)
 	if err == nil {
 		defer credRows.Close()

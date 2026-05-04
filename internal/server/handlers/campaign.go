@@ -186,15 +186,23 @@ func (h *CampaignHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if req.Status != nil {
-		validStatuses := map[string]bool{
-			models.CampaignStatusCreated:   true,
-			models.CampaignStatusRunning:   true,
-			models.CampaignStatusPaused:    true,
-			models.CampaignStatusCompleted: true,
-			models.CampaignStatusFailed:    true,
+		validTransitions := map[string]map[string]bool{
+			models.CampaignStatusCreated:   {models.CampaignStatusRunning: true},
+			models.CampaignStatusRunning:   {models.CampaignStatusPaused: true},
+			models.CampaignStatusPaused:    {models.CampaignStatusRunning: true},
+			models.CampaignStatusCompleted: {},
+			models.CampaignStatusFailed:    {},
 		}
-		if !validStatuses[*req.Status] {
-			return c.Status(400).JSON(fiber.Map{"error": "invalid status"})
+		var currentStatus string
+		if err := h.db.QueryRow(`SELECT status FROM campaigns WHERE id = $1`, id).Scan(&currentStatus); err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": "campaign not found"})
+		}
+		allowed, known := validTransitions[currentStatus]
+		if !known {
+			return c.Status(400).JSON(fiber.Map{"error": "unknown current status"})
+		}
+		if !allowed[*req.Status] {
+			return c.Status(400).JSON(fiber.Map{"error": fmt.Sprintf("cannot transition from %s to %s", currentStatus, *req.Status)})
 		}
 	}
 

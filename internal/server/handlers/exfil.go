@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -95,7 +97,8 @@ func (h *ExfilHandler) Download(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to fetch data"})
 	}
 
-	c.Set("Content-Disposition", "attachment; filename="+filename)
+	sanitized := strings.NewReplacer(`"`, `\"`, "\r", "", "\n", "").Replace(filename)
+	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, sanitized))
 	c.Set("Content-Type", "application/octet-stream")
 	return c.Send(data)
 }

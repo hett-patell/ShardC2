@@ -141,18 +141,6 @@ func (s *Server) setupRoutes() {
 			})
 			return err
 		}
-		if c.Response().StatusCode() >= 400 {
-			_ = auditRecorder.Record(c, audit.Event{
-				Action:     "auth.denied",
-				ObjectType: "operator_route",
-				ObjectID:   c.Path(),
-				Outcome:    audit.OutcomeDenied,
-				Details: audit.SanitizeDetails(fiber.Map{
-					"method": c.Method(),
-					"path":   c.Path(),
-				}),
-			})
-		}
 		return nil
 	}
 	auditAction := func(action string, objectType string) fiber.Handler {
@@ -240,41 +228,49 @@ func (s *Server) setupRoutes() {
 	op := api.Group("", auditedOpAuth)
 	op.Use(limiter.New(limiter.Config{Max: 600, Expiration: time.Minute}))
 
+	writeGuard := func(c *fiber.Ctx) error {
+		role, _ := c.Locals("operator_role").(string)
+		if role == "viewer" {
+			return c.Status(403).JSON(fiber.Map{"error": "read-only access"})
+		}
+		return c.Next()
+	}
+
 	bots := op.Group("/bots")
 	bots.Get("/", botHandler.List)
 	bots.Get("/:id", botHandler.Get)
-	bots.Delete("/:id", botHandler.Remove)
+	bots.Delete("/:id", writeGuard, botHandler.Remove)
 
 	cmds := op.Group("/commands")
-	cmds.Post("/", auditAction("command.create", "command"), cmdHandler.Create)
-	cmds.Post("/batch", auditAction("command.batch_create", "command"), cmdHandler.BatchCreate)
+	cmds.Post("/", writeGuard, auditAction("command.create", "command"), cmdHandler.Create)
+	cmds.Post("/batch", writeGuard, auditAction("command.batch_create", "command"), cmdHandler.BatchCreate)
 	cmds.Get("/history/:bot_id", cmdHandler.History)
 
 	creds := op.Group("/credentials")
-	creds.Post("/", credHandler.Submit)
+	creds.Post("/", writeGuard, credHandler.Submit)
 	creds.Get("/", auditAction("credential.list", "credential"), credHandler.List)
 	creds.Get("/:id/reveal", auditAction("credential.reveal", "credential"), credHandler.Reveal)
-	creds.Delete("/:id", auditAction("credential.delete", "credential"), credHandler.Delete)
+	creds.Delete("/:id", writeGuard, auditAction("credential.delete", "credential"), credHandler.Delete)
 
 	camps := op.Group("/campaigns")
-	camps.Post("/", auditAction("campaign.create", "campaign"), campHandler.Create)
+	camps.Post("/", writeGuard, auditAction("campaign.create", "campaign"), campHandler.Create)
 	camps.Get("/", campHandler.List)
 	camps.Get("/:id", campHandler.Get)
-	camps.Put("/:id", campHandler.Update)
-	camps.Delete("/:id", auditAction("campaign.delete", "campaign"), campHandler.Delete)
-	camps.Post("/:id/bots", campHandler.AssignBots)
-	camps.Delete("/:id/bots/:bot_id", campHandler.RemoveBot)
+	camps.Put("/:id", writeGuard, campHandler.Update)
+	camps.Delete("/:id", writeGuard, auditAction("campaign.delete", "campaign"), campHandler.Delete)
+	camps.Post("/:id/bots", writeGuard, campHandler.AssignBots)
+	camps.Delete("/:id/bots/:bot_id", writeGuard, campHandler.RemoveBot)
 	camps.Get("/:id/bots", campHandler.ListBots)
-	camps.Post("/:id/launch", auditAction("campaign.launch", "campaign"), campHandler.Launch)
+	camps.Post("/:id/launch", writeGuard, auditAction("campaign.launch", "campaign"), campHandler.Launch)
 	camps.Get("/:id/progress", campHandler.Progress)
 	camps.Get("/:id/results", campHandler.Results)
-	camps.Post("/:id/replay", auditAction("campaign.replay", "campaign"), campHandler.Replay)
+	camps.Post("/:id/replay", writeGuard, auditAction("campaign.replay", "campaign"), campHandler.Replay)
 	camps.Post("/validate", campHandler.Validate)
 
 	exfil := op.Group("/exfil")
 	exfil.Get("/", auditAction("exfil.list", "exfil"), exfilHandler.List)
 	exfil.Get("/:id", auditAction("exfil.download", "exfil"), exfilHandler.Download)
-	exfil.Delete("/:id", auditAction("exfil.delete", "exfil"), exfilHandler.Delete)
+	exfil.Delete("/:id", writeGuard, auditAction("exfil.delete", "exfil"), exfilHandler.Delete)
 
 	op.Get("/stats", botHandler.Stats)
 

