@@ -111,7 +111,9 @@ func (h *BotHandler) AgentBeacon(c *fiber.Ctx) error {
 func (h *BotHandler) List(c *fiber.Ctx) error {
 	rows, err := h.db.Query(`
 		SELECT id, hostname, ip_address, COALESCE(external_ip, ''), os, architecture,
-		       COALESCE(username, ''), privileged, last_seen, status, beacon_interval, created_at
+		       COALESCE(username, ''), privileged, last_seen,
+		       CASE WHEN last_seen > NOW() - INTERVAL '5 minutes' THEN 'active' ELSE 'dead' END,
+		       beacon_interval, created_at
 		FROM bots ORDER BY last_seen DESC`)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to list bots"})
@@ -221,8 +223,8 @@ func (h *BotHandler) Stats(c *fiber.Ctx) error {
 	})
 }
 
-func botFingerprint(hostname, ip, osName, arch, username string) string {
-	raw := fmt.Sprintf("%s|%s|%s|%s|%s", hostname, ip, osName, arch, username)
+func botFingerprint(hostname, _, osName, arch, username string) string {
+	raw := fmt.Sprintf("%s|%s|%s|%s", hostname, osName, arch, username)
 	h := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(h[:])
 }
