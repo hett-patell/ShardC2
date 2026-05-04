@@ -123,7 +123,7 @@ shardc2/
 │   ├── plugins/         # Plugin manifest loader & validator
 │   ├── client/          # Go operator SDK (programmatic C2 access)
 │   └── models/          # Shared types — Bot, Command, Campaign, Credential, Build, AuditEvent
-├── migrations/          # PostgreSQL schema (001-010)
+├── migrations/          # PostgreSQL schema (001-013)
 ├── web/dashboard/       # Operator SPA — HTML/CSS/JS with WebSocket real-time updates
 ├── wordlists/           # Bundled credential wordlists
 ├── docs/api/            # OpenAPI specification
@@ -225,16 +225,17 @@ Open `https://YOUR_IP:8443/dashboard/` and log in with your admin credentials.
 
 ## Dashboard
 
-The operator dashboard is a single-page application with six sections:
+The operator dashboard is a single-page application with seven sections:
 
 | Section | What it does |
 |---------|-------------|
-| **Overview** | Real-time stats (active implants, pending commands, campaigns), implant table with status |
-| **Implants** | Full implant list with hostname, IPs, platform, user, privilege level. Click for detail or shell |
+| **Overview** | Real-time stats (active implants, pending commands, campaigns), activity feed, ring charts |
+| **Implants** | Full implant list with hostname, IPs, platform, user, privilege level, tags. Click for detail or shell |
 | **Terminal** | Interactive shell to any implant. Multi-bot mode sends commands to multiple implants at once. WebSocket for real-time output |
-| **Credentials** | Credential vault — harvested credentials with masked passwords, audited reveal, and delete |
-| **Campaigns** | Create/launch/track campaigns. Live progress bars, task results with expandable output, replay completed campaigns |
+| **Credentials** | Credential vault — categorized secrets (passwords, API keys, tokens, private keys), search/filter, click-to-reveal |
+| **Campaigns** | Create/launch/track campaigns. Live progress bars, task results with expandable output, replay completed campaigns, export reports (JSON/HTML/MD) |
 | **Files** | Remote file browser — navigate the filesystem of any implant, view permissions/ownership, download files |
+| **Settings** | System info, operator management, database stats, agent builder/stager, account settings, audit log |
 
 ---
 
@@ -482,7 +483,7 @@ result, _ := c.ValidateCampaign(client.ValidateRequest{
 
 ## Database
 
-PostgreSQL with 10 incremental migrations (auto-applied with `--migrate`):
+PostgreSQL with 13 incremental migrations (auto-applied with `--migrate`):
 
 | # | Migration | Tables/Changes |
 |---|-----------|---------------|
@@ -496,6 +497,9 @@ PostgreSQL with 10 incremental migrations (auto-applied with `--migrate`):
 | 008 | Agent identity | public keys, token expiry |
 | 009 | Campaign runs | campaign_runs tracking table |
 | 010 | Build pipeline | agent_builds table |
+| 011 | Credential dedup | unique constraint on credentials |
+| 012 | Credential categories | category/source columns for credential vault |
+| 013 | Bot tags | implant tagging support |
 
 ---
 
@@ -537,9 +541,9 @@ go test ./...
 
 ### Project Stats
 
-- **47 Go source files** across cmd/, pkg/, internal/
-- **17 test suites** covering crypto, policy, handlers, middleware, engine, models, client, builds, audit
-- **10 database migrations**
+- **72 Go source files** across cmd/, pkg/, internal/
+- **21 test suites** covering crypto, policy, handlers, middleware, engine, models, client, builds, audit
+- **13 database migrations**
 - **3 malleable C2 profiles**
 - **13 recon modules**, **5 campaign types**
 
