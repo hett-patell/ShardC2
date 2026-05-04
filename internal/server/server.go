@@ -245,6 +245,7 @@ func (s *Server) setupRoutes() {
 	cmds.Post("/", writeGuard, auditAction("command.create", "command"), cmdHandler.Create)
 	cmds.Post("/batch", writeGuard, auditAction("command.batch_create", "command"), cmdHandler.BatchCreate)
 	cmds.Get("/history/:bot_id", cmdHandler.History)
+	cmds.Get("/:id/status", cmdHandler.GetOne)
 
 	creds := op.Group("/credentials")
 	creds.Post("/", writeGuard, credHandler.Submit)

@@ -1492,11 +1492,9 @@ class App {
       let attempts = 0;
       const poll = async () => {
         attempts++;
-        const data = await this.api.get(`/commands/history/${this.fileBrowserBotId}`);
-        const cmds = data.commands || [];
-        const cmd = cmds.find(c => c.id === cmdId);
-        if (!cmd || cmd.status === 'pending' || cmd.status === 'executing') {
-          if (attempts < 20) setTimeout(poll, 1000);
+        const cmd = await this.api.get(`/commands/${cmdId}/status`);
+        if (cmd.status === 'pending' || cmd.status === 'executing') {
+          if (attempts < 20) setTimeout(poll, 1500);
           else el.innerHTML = '<div class="empty-state"><p>COMMAND TIMED OUT</p></div>';
           return;
         }

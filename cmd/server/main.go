@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -44,6 +45,7 @@ func main() {
 		profileName    = flag.String("profile", "default", "Malleable C2 profile (default, cloudfront, wordpress, or path to JSON)")
 		jwtSecret      = flag.String("jwt-secret", os.Getenv("SHARDC2_JWT_SECRET"), "JWT signing secret for operator auth")
 		policyFile     = flag.String("policy-file", os.Getenv("SHARDC2_POLICY_FILE"), "Safety policy JSON file")
+		secretsFile    = flag.String("secrets-file", envOrDefault("SHARDC2_SECRETS_FILE", ".shardc2-secrets.json"), "Auto-persist server secrets (implant key, JWT, operator token)")
 	)
 	flag.Parse()
 
@@ -56,6 +58,17 @@ func main() {
 		}
 		fmt.Println("[+] Generated server.crt and server.key")
 		return
+	}
+
+	saved := loadSecrets(*secretsFile)
+	if *implantKey == "" {
+		*implantKey = saved.ImplantKey
+	}
+	if *jwtSecret == "" {
+		*jwtSecret = saved.JWTSecret
+	}
+	if *operatorToken == "" {
+		*operatorToken = saved.OperatorToken
 	}
 
 	derivedOperatorToken, jwtSecretBytes, generatedOperatorToken, err := deriveServerSecrets(*operatorToken, *jwtSecret, os.Stdout)
@@ -74,9 +87,14 @@ func main() {
 			log.Fatalf("[-] Failed to generate implant key: %v", err)
 		}
 		*implantKey = key
-		fmt.Printf("[!] No implant key set. Generated: %s\n", key)
-		fmt.Println("[!] Set SHARDC2_IMPLANT_KEY or --implant-key to persist this")
+		fmt.Printf("[+] Generated implant key: %s\n", key)
 	}
+
+	saveSecrets(*secretsFile, serverSecrets{
+		ImplantKey:    *implantKey,
+		JWTSecret:     string(jwtSecretBytes),
+		OperatorToken: *operatorToken,
+	})
 
 	db, err := database.New(*dbConn)
 	if err != nil {
@@ -193,4 +211,29 @@ func envOrDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+type serverSecrets struct {
+	ImplantKey    string `json:"implant_key"`
+	JWTSecret     string `json:"jwt_secret"`
+	OperatorToken string `json:"operator_token"`
+}
+
+func loadSecrets(path string) serverSecrets {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return serverSecrets{}
+	}
+	var s serverSecrets
+	json.Unmarshal(data, &s)
+	return s
+}
+
+func saveSecrets(path string, s serverSecrets) {
+	data, _ := json.MarshalIndent(s, "", "  ")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		fmt.Printf("[!] Failed to persist secrets to %s: %v\n", path, err)
+		return
+	}
+	fmt.Printf("[+] Secrets persisted to %s\n", path)
 }

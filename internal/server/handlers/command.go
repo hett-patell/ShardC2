@@ -187,6 +187,24 @@ func (h *CommandHandler) History(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"commands": cmds})
 }
 
+func (h *CommandHandler) GetOne(c *fiber.Ctx) error {
+	id := c.Params("id")
+	var cmdType, payload, output, status string
+	var createdAt time.Time
+	var executedAt *time.Time
+	err := h.db.QueryRow(`
+		SELECT type, payload, COALESCE(output, ''), status, created_at, executed_at
+		FROM commands WHERE id = $1`, id,
+	).Scan(&cmdType, &payload, &output, &status, &createdAt, &executedAt)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "command not found"})
+	}
+	return c.JSON(fiber.Map{
+		"id": id, "type": cmdType, "payload": payload, "output": output,
+		"status": status, "created_at": createdAt, "executed_at": executedAt,
+	})
+}
+
 func (h *CommandHandler) BatchCreate(c *fiber.Ctx) error {
 	var req struct {
 		BotIDs  []string `json:"bot_ids"`

@@ -12,6 +12,7 @@ vendor/
 /bruteforcer
 server.crt
 server.key
+.shardc2-secrets.json
 claude-shard
 web/dashboard/wordlists/
 wordlists/
