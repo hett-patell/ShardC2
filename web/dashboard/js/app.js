@@ -1277,6 +1277,8 @@ class App {
   }
 
   async renderCampaignDetail(id) {
+    if (this.currentPage !== 'campaigns') return;
+    clearInterval(this.refreshTimer);
     const c = document.getElementById('content');
 
     try {

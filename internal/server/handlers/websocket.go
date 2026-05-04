@@ -16,20 +16,25 @@ type WSMessage struct {
 	Data      interface{} `json:"data,omitempty"`
 }
 
+type wsClient struct {
+	subs map[string]bool
+	wmu  sync.Mutex
+}
+
 type WSHub struct {
 	mu      sync.RWMutex
-	clients map[*websocket.Conn]map[string]bool // conn -> set of subscribed bot IDs
+	clients map[*websocket.Conn]*wsClient
 }
 
 func NewWSHub() *WSHub {
 	return &WSHub{
-		clients: make(map[*websocket.Conn]map[string]bool),
+		clients: make(map[*websocket.Conn]*wsClient),
 	}
 }
 
 func (h *WSHub) Register(conn *websocket.Conn) {
 	h.mu.Lock()
-	h.clients[conn] = make(map[string]bool)
+	h.clients[conn] = &wsClient{subs: make(map[string]bool)}
 	h.mu.Unlock()
 }
 
@@ -41,16 +46,16 @@ func (h *WSHub) Unregister(conn *websocket.Conn) {
 
 func (h *WSHub) Subscribe(conn *websocket.Conn, botID string) {
 	h.mu.Lock()
-	if subs, ok := h.clients[conn]; ok {
-		subs[botID] = true
+	if cl, ok := h.clients[conn]; ok {
+		cl.subs[botID] = true
 	}
 	h.mu.Unlock()
 }
 
 func (h *WSHub) Unsubscribe(conn *websocket.Conn, botID string) {
 	h.mu.Lock()
-	if subs, ok := h.clients[conn]; ok {
-		delete(subs, botID)
+	if cl, ok := h.clients[conn]; ok {
+		delete(cl.subs, botID)
 	}
 	h.mu.Unlock()
 }
@@ -64,11 +69,13 @@ func (h *WSHub) Broadcast(botID string, msg WSMessage) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	for conn, subs := range h.clients {
-		if subs[botID] || subs["*"] {
+	for conn, cl := range h.clients {
+		if cl.subs[botID] || cl.subs["*"] {
+			cl.wmu.Lock()
 			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
 				log.Printf("[-] WS write error: %v", err)
 			}
+			cl.wmu.Unlock()
 		}
 	}
 }
@@ -90,6 +97,18 @@ func WSHandler(hub *WSHub) func(*websocket.Conn) {
 			conn.Close()
 		}()
 
+		writeJSON := func(v interface{}) {
+			hub.mu.RLock()
+			cl, ok := hub.clients[conn]
+			hub.mu.RUnlock()
+			if !ok {
+				return
+			}
+			cl.wmu.Lock()
+			conn.WriteJSON(v)
+			cl.wmu.Unlock()
+		}
+
 		for {
 			_, msg, err := conn.ReadMessage()
 			if err != nil {
@@ -108,12 +127,12 @@ func WSHandler(hub *WSHub) func(*websocket.Conn) {
 			case "subscribe":
 				if req.BotID != "" {
 					hub.Subscribe(conn, req.BotID)
-					conn.WriteJSON(WSMessage{Type: "subscribed", BotID: req.BotID})
+					writeJSON(WSMessage{Type: "subscribed", BotID: req.BotID})
 				}
 			case "unsubscribe":
 				if req.BotID != "" {
 					hub.Unsubscribe(conn, req.BotID)
-					conn.WriteJSON(WSMessage{Type: "unsubscribed", BotID: req.BotID})
+					writeJSON(WSMessage{Type: "unsubscribed", BotID: req.BotID})
 				}
 			}
 		}

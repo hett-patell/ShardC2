@@ -128,7 +128,7 @@ func (h *StatusHandler) DatabaseStats(c *fiber.Ctx) error {
 		Name  string `json:"name"`
 		Rows  int    `json:"rows"`
 	}
-	tables := []string{"bots", "commands", "credentials", "campaigns", "campaign_tasks", "audit_events", "operators", "exfil_files", "agent_builds"}
+	tables := []string{"bots", "commands", "credentials", "campaigns", "campaign_tasks", "audit_events", "operators", "exfil_data", "agent_builds"}
 	var stats []tableSize
 	for _, t := range tables {
 		var count int

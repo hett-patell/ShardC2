@@ -224,6 +224,9 @@ func (h *CommandHandler) BatchCreate(c *fiber.Ctx) error {
 	if len(req.BotIDs) == 0 {
 		return c.Status(400).JSON(fiber.Map{"error": "bot_ids required"})
 	}
+	if len(req.BotIDs) > 100 {
+		return c.Status(400).JSON(fiber.Map{"error": "max 100 bot_ids per batch"})
+	}
 	if req.Payload == "" {
 		return c.Status(400).JSON(fiber.Map{"error": "payload required"})
 	}

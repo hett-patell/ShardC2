@@ -174,8 +174,8 @@ func JWTAuth(secret []byte, requiredRoles ...string) fiber.Handler {
 			}
 		}
 
-		c.Locals("operator_id", claims["sub"])
-		c.Locals("operator_user", claims["usr"])
+		c.Locals("operator_id", fmt.Sprintf("%v", claims["sub"]))
+		c.Locals("operator_user", fmt.Sprintf("%v", claims["usr"]))
 		c.Locals("operator_role", role)
 		return c.Next()
 	}
