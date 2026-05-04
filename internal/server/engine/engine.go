@@ -351,7 +351,7 @@ func (e *Engine) updateProgress(campID string) {
 
 	if total > 0 && (completed+failed) >= total {
 		status := models.CampaignStatusCompleted
-		if failed > completed {
+		if completed == 0 && failed > 0 {
 			status = models.CampaignStatusFailed
 		}
 		e.db.Exec(`UPDATE campaigns SET status = $1, updated_at = NOW() WHERE id = $2`, status, campID)

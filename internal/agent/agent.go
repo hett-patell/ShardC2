@@ -435,6 +435,9 @@ func (a *Agent) ExecuteCommand(ctx context.Context, payload string, timeout time
 	if len(out) > MaxOutputSize {
 		out = out[:MaxOutputSize]
 	}
+	if err != nil && len(out) > 0 {
+		return string(out), nil
+	}
 	return string(out), err
 }
 
