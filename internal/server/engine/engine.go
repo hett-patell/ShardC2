@@ -137,6 +137,10 @@ func (e *Engine) generateTasks(ctx context.Context, campID, campType, config str
 			return
 		}
 		if cfg.Mode == "external" {
+			_, err := e.db.Exec(`INSERT INTO campaign_tasks (campaign_id, bot_id, command_id, task_name, status) VALUES ($1, NULL, NULL, 'External Brute', 'pending')`, campID)
+			if err != nil {
+				log.Printf("[-] Campaign %s: failed to insert sentinel task: %v", campID[:8], err)
+			}
 			go e.RunExternalBrute(campID, config)
 			return
 		}

