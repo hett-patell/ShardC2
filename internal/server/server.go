@@ -266,6 +266,7 @@ func (s *Server) setupRoutes() {
 	camps.Get("/:id/results", campHandler.Results)
 	camps.Post("/:id/replay", writeGuard, auditAction("campaign.replay", "campaign"), campHandler.Replay)
 	camps.Post("/validate", campHandler.Validate)
+	camps.Post("/:id/extract", writeGuard, auditAction("campaign.extract", "campaign"), campHandler.ExtractSecrets)
 
 	exfil := op.Group("/exfil")
 	exfil.Get("/", auditAction("exfil.list", "exfil"), exfilHandler.List)

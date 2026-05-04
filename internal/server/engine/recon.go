@@ -6,7 +6,8 @@ import (
 )
 
 type reconConfig struct {
-	Modules []string `json:"modules"`
+	Modules     []string `json:"modules"`
+	AutoExtract *bool    `json:"auto_extract,omitempty"`
 }
 
 var reconModules = map[string]TaskTemplate{

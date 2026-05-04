@@ -54,18 +54,21 @@ func (h *CredentialHandler) Submit(c *fiber.Ctx) error {
 }
 
 func (h *CredentialHandler) List(c *fiber.Ctx) error {
-	query := `SELECT id, username, password, target, port, COALESCE(service, 'ssh'), valid, COALESCE(bot_id::text, ''), discovered_at FROM credentials`
+	query := `SELECT id, username, password, target, port, COALESCE(service, 'ssh'), COALESCE(category, 'login'), valid, COALESCE(bot_id::text, ''), COALESCE(campaign_id::text, ''), COALESCE(source_path, ''), discovered_at FROM credentials`
 	args := []interface{}{}
 	conditions := []string{}
 
 	if target := c.Query("target"); target != "" {
-		conditions = append(conditions, "target = $1")
+		conditions = append(conditions, fmt.Sprintf("target = $%d", len(args)+1))
 		args = append(args, target)
 	}
 	if c.Query("valid") == "true" {
-		idx := len(args) + 1
-		conditions = append(conditions, fmt.Sprintf("valid = $%d", idx))
+		conditions = append(conditions, fmt.Sprintf("valid = $%d", len(args)+1))
 		args = append(args, true)
+	}
+	if category := c.Query("category"); category != "" {
+		conditions = append(conditions, fmt.Sprintf("category = $%d", len(args)+1))
+		args = append(args, category)
 	}
 
 	if len(conditions) > 0 {
@@ -77,7 +80,7 @@ func (h *CredentialHandler) List(c *fiber.Ctx) error {
 			query += cond
 		}
 	}
-	query += " ORDER BY discovered_at DESC LIMIT 100"
+	query += " ORDER BY discovered_at DESC LIMIT 500"
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
@@ -87,16 +90,17 @@ func (h *CredentialHandler) List(c *fiber.Ctx) error {
 
 	var creds []fiber.Map
 	for rows.Next() {
-		var id, username, password, target, service, botID string
+		var id, username, password, target, service, category, botID, campaignID, sourcePath string
 		var port int
 		var valid bool
 		var discoveredAt time.Time
-		if err := rows.Scan(&id, &username, &password, &target, &port, &service, &valid, &botID, &discoveredAt); err != nil {
+		if err := rows.Scan(&id, &username, &password, &target, &port, &service, &category, &valid, &botID, &campaignID, &sourcePath, &discoveredAt); err != nil {
 			continue
 		}
 		creds = append(creds, fiber.Map{
 			"id": id, "username": username, "password": "********", "target": target,
-			"port": port, "service": service, "valid": valid, "bot_id": botID,
+			"port": port, "service": service, "category": category, "valid": valid,
+			"bot_id": botID, "campaign_id": campaignID, "source_path": sourcePath,
 			"discovered_at": discoveredAt,
 		})
 	}

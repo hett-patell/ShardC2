@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/shardc2/shardc2/internal/database"
+	"github.com/shardc2/shardc2/internal/server/engine"
 	"github.com/shardc2/shardc2/pkg/models"
 	"github.com/shardc2/shardc2/pkg/policy"
 )
@@ -558,5 +559,61 @@ func (h *CampaignHandler) Validate(c *fiber.Ctx) error {
 		"blocked_targets": result.BlockedTargets,
 		"policy_warnings": result.PolicyWarnings,
 		"can_launch":      result.BlockedTargets == 0 && len(result.PolicyWarnings) == 0,
+	})
+}
+
+func (h *CampaignHandler) ExtractSecrets(c *fiber.Ctx) error {
+	campID := c.Params("id")
+
+	var campType string
+	err := h.db.QueryRow(`SELECT type FROM campaigns WHERE id = $1`, campID).Scan(&campType)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "campaign not found"})
+	}
+	if campType != "recon" {
+		return c.Status(400).JSON(fiber.Map{"error": "extract is only available for recon campaigns"})
+	}
+
+	rows, err := h.db.Query(`
+		SELECT ct.bot_id, ct.output, COALESCE(b.hostname, '')
+		FROM campaign_tasks ct
+		LEFT JOIN bots b ON b.id = ct.bot_id
+		WHERE ct.campaign_id = $1 AND ct.status IN ('completed', 'failed') AND ct.output != ''`, campID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to fetch tasks"})
+	}
+	defer rows.Close()
+
+	totalExtracted := 0
+	totalNew := 0
+
+	for rows.Next() {
+		var botID, output, hostname string
+		if err := rows.Scan(&botID, &output, &hostname); err != nil {
+			continue
+		}
+
+		secrets := engine.ParseReconSecrets(output, botID, campID, hostname)
+		totalExtracted += len(secrets)
+
+		for _, s := range secrets {
+			result, err := h.db.Exec(`
+				INSERT INTO credentials (username, password, target, port, service, category, valid, bot_id, campaign_id, source_path)
+				VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8, $9)
+				ON CONFLICT (username, target, port, service, category) DO NOTHING`,
+				s.Username, s.Password, s.Target, s.Port, s.Service, s.Category,
+				nilIfEmpty(s.BotID), nilIfEmpty(s.CampaignID), nilIfEmpty(s.SourcePath))
+			if err == nil {
+				if r, _ := result.RowsAffected(); r > 0 {
+					totalNew++
+				}
+			}
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"extracted":  totalExtracted,
+		"new":        totalNew,
+		"duplicates": totalExtracted - totalNew,
 	})
 }
