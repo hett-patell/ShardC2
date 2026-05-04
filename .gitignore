@@ -18,3 +18,8 @@ web/dashboard/wordlists/
 wordlists/
 *.sqlite
 *.db
+*.png
+*.jpg
+/shardc2
+/docs/plans/
+.playwright-mcp/
