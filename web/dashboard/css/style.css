@@ -82,19 +82,75 @@ body {
   justify-content: center;
   min-height: 100vh;
   background: var(--bg-void);
-  background-image:
-    radial-gradient(ellipse at 50% 0%, rgba(156, 18, 57, 0.12) 0%, transparent 60%),
-    radial-gradient(ellipse at 50% 100%, rgba(220, 38, 38, 0.06) 0%, transparent 50%);
+  overflow: hidden;
+  position: relative;
+}
+
+.login-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  animation: glowDrift 12s ease-in-out infinite alternate;
+}
+
+.login-glow:nth-child(1) {
+  width: 600px; height: 600px;
+  background: rgba(220, 38, 38, 0.35);
+  top: -20%; left: -10%;
+  animation-duration: 8s;
+}
+
+.login-glow:nth-child(2) {
+  width: 550px; height: 550px;
+  background: rgba(159, 18, 57, 0.4);
+  bottom: -25%; right: -10%;
+  animation-delay: -3s;
+  animation-duration: 10s;
+}
+
+.login-glow:nth-child(3) {
+  width: 400px; height: 400px;
+  background: rgba(127, 29, 29, 0.35);
+  top: 20%; right: 5%;
+  animation-delay: -5s;
+  animation-duration: 12s;
+}
+
+.login-glow:nth-child(4) {
+  width: 350px; height: 350px;
+  background: rgba(168, 85, 247, 0.18);
+  top: -5%; right: 30%;
+  animation-delay: -2s;
+  animation-duration: 14s;
+}
+
+.login-glow:nth-child(5) {
+  width: 500px; height: 500px;
+  background: rgba(220, 38, 38, 0.25);
+  bottom: -10%; left: 20%;
+  animation-delay: -7s;
+  animation-duration: 11s;
+}
+
+@keyframes glowDrift {
+  0% { transform: translate(0, 0) scale(1); opacity: 0.8; }
+  33% { transform: translate(40px, -30px) scale(1.15); opacity: 1; }
+  66% { transform: translate(-30px, 20px) scale(0.9); opacity: 0.7; }
+  100% { transform: translate(20px, -10px) scale(1.05); opacity: 0.9; }
 }
 
 .login-box {
   text-align: center;
   padding: 3rem 2.5rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+  background: rgba(10, 12, 18, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(26, 31, 46, 0.8);
   border-top: 2px solid var(--red);
   position: relative;
+  z-index: 2;
   animation: login-appear 0.6s ease-out;
+  box-shadow: 0 0 80px rgba(220, 38, 38, 0.08), 0 25px 50px rgba(0, 0, 0, 0.5);
 }
 
 @keyframes login-appear {
